@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { UserProfileBar } from "@/components/UserProfileBar";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRoom } from "@/hooks/useRoom";
@@ -11,6 +12,8 @@ import {
   ensureRoom,
   fillFloorTiles,
   removeFurnitureItem,
+  resetRoom,
+  migrateFurnitureIds,
   updateDoorTile,
   updateFloorTile,
   updateFurnitureItem,
@@ -109,6 +112,7 @@ export default function AdminEditorClient() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
   const dragPaintingRef = useRef(false);
   const lastPaintedFloorRef = useRef<string | null>(null);
   const lastPaintedWallRef = useRef<string | null>(null);
@@ -155,6 +159,10 @@ export default function AdminEditorClient() {
 
   useEffect(() => {
     if (!loading && !room) void ensureRoom(roomId);
+  }, [loading, room, roomId]);
+
+  useEffect(() => {
+    if (!loading && room) void migrateFurnitureIds(roomId);
   }, [loading, room, roomId]);
 
   useEffect(() => {
@@ -395,6 +403,26 @@ export default function AdminEditorClient() {
     });
   };
 
+  const handleResetRoom = () => {
+    const confirmed = window.confirm(
+      `Reset “${roomId}”? This deletes all furniture, floor paint, doors, and windows and restores the default room.`,
+    );
+    if (!confirmed) return;
+
+    setResetting(true);
+    setPaintError(null);
+    void resetRoom(roomId)
+      .then(() => {
+        setSelectedFurnitureId(null);
+        setFurnitureColor(DEFAULT_FURNITURE_COLOR);
+        setGhostPosition(null);
+      })
+      .catch((err) => {
+        setPaintError(err instanceof Error ? err.message : "Reset failed");
+      })
+      .finally(() => setResetting(false));
+  };
+
   const clearPendingUpload = () => {
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
     setPendingFile(null);
@@ -509,12 +537,21 @@ export default function AdminEditorClient() {
             <span className="hidden text-[10px] text-zinc-500 sm:inline">
               Left-click paint · Right-drag orbit
             </span>
+            <button
+              type="button"
+              onClick={handleResetRoom}
+              disabled={resetting || !room}
+              className="rounded border border-red-900/60 px-2 py-1 text-[11px] text-red-400 hover:bg-red-950/50 disabled:opacity-50"
+            >
+              {resetting ? "Resetting…" : "Reset room"}
+            </button>
             <Link
               href={`/play/${roomId}`}
               className="text-xs text-zinc-400 underline"
             >
               Play view
             </Link>
+            <UserProfileBar />
           </div>
         </header>
 
@@ -692,8 +729,56 @@ export default function AdminEditorClient() {
                 onClick={handleRemoveFurniture}
                 className="w-full rounded-lg border border-red-900/60 py-2 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50"
               >
-                Remove from room
+                Remove selected
               </button>
+            )}
+            {room && room.furniture.length > 0 && (
+              <div className="space-y-2 border-t border-zinc-800 pt-3">
+                <p className="text-xs text-zinc-400">
+                  Placed items ({room.furniture.length})
+                </p>
+                <ul className="max-h-40 space-y-1 overflow-y-auto">
+                  {room.furniture.map((item) => {
+                    const def = getTile(tilesets, "furniture", item.type);
+                    const label = def?.name ?? item.type;
+                    const isSelected = selectedFurnitureId === item.id;
+                    return (
+                      <li
+                        key={item.id}
+                        className={`flex items-center gap-2 rounded px-2 py-1.5 text-[11px] ${
+                          isSelected
+                            ? "bg-blue-950/50 text-blue-200"
+                            : "bg-zinc-900 text-zinc-300"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left hover:underline"
+                          onClick={() => handleFurnitureSelect(item.id)}
+                        >
+                          {label} @ ({item.x}, {item.z})
+                        </button>
+                        <button
+                          type="button"
+                          disabled={painting}
+                          title="Delete this item"
+                          onClick={() => {
+                            setSelectedFurnitureId(item.id);
+                            void runPaint(async () => {
+                              await removeFurnitureItem(roomId, item.id);
+                              setSelectedFurnitureId(null);
+                              setFurnitureColor(DEFAULT_FURNITURE_COLOR);
+                            });
+                          }}
+                          className="shrink-0 rounded px-1.5 py-0.5 text-red-400 hover:bg-red-950/50 disabled:opacity-50"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             )}
             {selectedPlacedFurniture && (
               <button

@@ -17,6 +17,7 @@ service cloud.firestore {
 
     function validOptionalString(field, maxLen) {
       return !(field in request.resource.data) ||
+        request.resource.data[field] == null ||
         (request.resource.data[field] is string &&
          request.resource.data[field].size() <= maxLen);
     }
@@ -25,15 +26,21 @@ service cloud.firestore {
       return url is string && url.matches("^https://.*");
     }
 
+    function isAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'authProvider', 'marketingEmail', 'termsAcceptedAt', 'createdAt', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'twitterHandle', 'authProvider', 'marketingEmail', 'termsAcceptedAt', 'createdAt', 'updatedAt']) &&
         data.uid is string &&
         data.uid.size() > 0 &&
         data.uid.size() <= 128 &&
         validOptionalString('email', 320) &&
         validOptionalString('displayName', 100) &&
+        validOptionalString('twitterHandle', 16) &&
         validOptionalString('marketingEmail', 320) &&
-        (!(('photoURL' in data)) || isValidUrl(data.photoURL)) &&
+        (!(('photoURL' in data)) || data.photoURL == null || isValidUrl(data.photoURL)) &&
         data.authProvider is string &&
         data.authProvider.size() > 0 &&
         data.authProvider.size() <= 64 &&
@@ -59,6 +66,11 @@ service cloud.firestore {
         data.pixelHeight is int && data.pixelHeight >= 1 && data.pixelHeight <= 256;
     }
 
+    match /admins/{uid} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId) && uidUnchanged() && isValidUser(request.resource.data);
@@ -68,39 +80,39 @@ service cloud.firestore {
 
     match /rooms/{roomId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
+      allow create, update: if isAdmin();
       allow delete: if false;
     }
 
     // Per-category tileset collections (add new match blocks when extending categories)
     match /floors/{tileId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /walls/{tileId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /doors/{tileId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /windows/{tileId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /furniture/{tileId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
+      allow delete: if isAdmin();
     }
   }
 }

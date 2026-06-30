@@ -11,6 +11,7 @@ import {
   DEFAULT_FURNITURE_COLOR,
   FLOOR_TILE_COUNT,
   normalizeRoom,
+  normalizeFurniture,
   type FurnitureItem,
   type RoomDocument,
 } from "@/types/room";
@@ -45,6 +46,25 @@ export async function saveRoom(
 ): Promise<void> {
   const ref = doc(getFirebaseDb(), "rooms", roomId);
   await setDoc(ref, room, { merge: true });
+}
+
+export async function resetRoom(roomId: string): Promise<void> {
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await setDoc(ref, createDefaultRoom());
+}
+
+/** Persist stable ids for furniture saved before ids were required. */
+export async function migrateFurnitureIds(roomId: string): Promise<void> {
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  const { getDoc } = await import("firebase/firestore");
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const raw = snap.data() as Partial<RoomDocument>;
+  const items = raw.furniture ?? [];
+  if (!items.some((item) => !item.id)) return;
+
+  await updateDoc(ref, { furniture: normalizeFurniture(items) });
 }
 
 export async function fillFloorTiles(
@@ -135,7 +155,7 @@ export async function updateFurnitureItem(
   const furniture = room.furniture.map((item) =>
     item.id === itemId ? { ...item, ...patch } : item,
   );
-  await updateDoc(ref, { furniture });
+  await updateDoc(ref, { furniture: normalizeFurniture(furniture) });
 }
 
 export async function removeFurnitureItem(
@@ -149,6 +169,8 @@ export async function removeFurnitureItem(
 
   const room = normalizeRoom(snap.data() as Partial<RoomDocument>);
   await updateDoc(ref, {
-    furniture: room.furniture.filter((item) => item.id !== itemId),
+    furniture: normalizeFurniture(
+      room.furniture.filter((item) => item.id !== itemId),
+    ),
   });
 }

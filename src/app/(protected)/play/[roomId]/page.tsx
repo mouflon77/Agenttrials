@@ -3,6 +3,8 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { use, useEffect } from "react";
+import { UserProfileBar } from "@/components/UserProfileBar";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useRoom } from "@/hooks/useRoom";
 import { useTileset } from "@/hooks/useTileset";
 import { ensureRoom } from "@/lib/firestore/rooms";
@@ -28,6 +30,7 @@ export default function PlayPage({
   const { roomId } = use(params);
   const { room, loading, error } = useRoom(roomId);
   const { tilesets, loading: tilesetLoading } = useTileset();
+  const isAdmin = useIsAdmin();
 
   useEffect(() => {
     if (!loading && !room) {
@@ -44,12 +47,17 @@ export default function PlayPage({
             </h1>
             <p className="text-xs text-zinc-500">Axonometric play view</p>
           </div>
-          <Link
-            href="/admin/editor"
-            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            Open editor
-          </Link>
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <Link
+                href={`/admin/editor?roomId=${roomId}`}
+                className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+              >
+                Open editor
+              </Link>
+            )}
+            <UserProfileBar />
+          </div>
         </header>
 
         <div className="relative flex-1">

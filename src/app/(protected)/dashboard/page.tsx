@@ -1,19 +1,61 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { UserProfileBar } from "@/components/UserProfileBar";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
+
+function AdminSetupCard() {
+  const { user } = useAuth();
+  if (!user) return null;
+
+  return (
+    <div className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
+      <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+        Admin setup required
+      </h2>
+      <p className="mt-2 text-sm text-amber-800 dark:text-amber-300/90">
+        The editor is locked to one account. Add your Firebase UID to{" "}
+        <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+          NEXT_PUBLIC_ADMIN_UID
+        </code>{" "}
+        in <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">.env.local</code>{" "}
+        and App Hosting env, then create an empty Firestore doc at{" "}
+        <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+          admins/{user.uid}
+        </code>
+        .
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <code className="max-w-full truncate rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-zinc-800 dark:border-amber-800 dark:bg-zinc-900 dark:text-zinc-200">
+          {user.uid}
+        </code>
+        <button
+          type="button"
+          onClick={() => void navigator.clipboard.writeText(user.uid)}
+          className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900/40"
+        >
+          Copy UID
+        </button>
+      </div>
+      <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+        Restart <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">npm run dev</code>{" "}
+        after updating env. Deploy Firestore rules with{" "}
+        <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+          firebase deploy --only firestore:rules
+        </code>
+        .
+      </p>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
-  const { user, logout } = useAuth();
-  const router = useRouter();
+  const { user, userProfile } = useAuth();
+  const isAdmin = useIsAdmin();
 
-  const handleLogout = async () => {
-    await logout();
-    router.replace("/login");
-  };
-
-  const displayName = user?.displayName ?? "User";
+  const displayName =
+    userProfile?.displayName ?? userProfile?.twitterHandle ?? "there";
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -22,19 +64,14 @@ export default function DashboardPage() {
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
             Axonometric Sandbox
           </h1>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            Sign out
-          </button>
+          <UserProfileBar variant="light" />
         </div>
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-12">
         <p className="text-zinc-600 dark:text-zinc-400">
-          Welcome, {displayName}. Enter your room or open the editor.
+          Welcome, {displayName}. Enter your room
+          {isAdmin ? " or open the editor" : ""}.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-4">
@@ -44,13 +81,17 @@ export default function DashboardPage() {
           >
             Play room_01
           </Link>
-          <Link
-            href="/admin/editor?roomId=room_01"
-            className="rounded-xl border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            Open editor
-          </Link>
+          {isAdmin && (
+            <Link
+              href="/admin/editor?roomId=room_01"
+              className="rounded-xl border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Open editor
+            </Link>
+          )}
         </div>
+
+        {user && !isAdmin && <AdminSetupCard />}
       </main>
     </div>
   );

@@ -5,6 +5,7 @@ export interface UserProfile {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  twitterHandle: string | null;
   authProvider: string;
   marketingEmail: string | null;
   termsAcceptedAt: Timestamp | null;

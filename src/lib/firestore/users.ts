@@ -8,6 +8,7 @@ import {
 } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { getFirebaseDb } from "@/lib/firebase";
+import { extractTwitterHandle } from "@/lib/twitter";
 import type { UserProfile } from "@/types/user";
 
 function getAuthProvider(user: User): string {
@@ -18,8 +19,17 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
   const ref = doc(getFirebaseDb(), "users", user.uid);
   const snapshot = await getDoc(ref);
 
+  const twitterHandle = extractTwitterHandle(user);
+
   if (snapshot.exists()) {
-    return snapshot.data() as UserProfile;
+    await updateDoc(ref, {
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      ...(twitterHandle ? { twitterHandle } : {}),
+      updatedAt: serverTimestamp(),
+    });
+    const updated = await getDoc(ref);
+    return updated.data() as UserProfile;
   }
 
   const profile = {
@@ -27,6 +37,7 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
     email: user.email,
     displayName: user.displayName,
     photoURL: user.photoURL,
+    twitterHandle,
     authProvider: getAuthProvider(user),
     marketingEmail: null,
     termsAcceptedAt: null,

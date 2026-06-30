@@ -127,6 +127,19 @@ export function createEmptyOverlayGrid(): Record<string, string> {
   return {};
 }
 
+export function furnitureItemId(item: FurnitureItem, index: number): string {
+  if (item.id) return item.id;
+  return `legacy-${index}-${item.x}-${item.z}-${item.type}`;
+}
+
+export function normalizeFurniture(items: FurnitureItem[]): FurnitureItem[] {
+  return items.map((item, index) => ({
+    ...item,
+    id: furnitureItemId(item, index),
+    rotation: item.rotation ?? 0,
+  }));
+}
+
 export function createDefaultRoom(): RoomDocument {
   return {
     floorColor: "#c8b89a",
@@ -148,7 +161,7 @@ export function normalizeRoom(data: Partial<RoomDocument>): RoomDocument {
     wallGrid: { ...defaults.wallGrid, ...data.wallGrid },
     doorGrid: { ...defaults.doorGrid, ...data.doorGrid },
     windowGrid: { ...defaults.windowGrid, ...data.windowGrid },
-    furniture: data.furniture ?? defaults.furniture,
+    furniture: normalizeFurniture(data.furniture ?? defaults.furniture),
   };
 }
 
