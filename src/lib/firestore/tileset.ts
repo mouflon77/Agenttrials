@@ -6,7 +6,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { db, storage } from "@/lib/firebase";
+import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase";
 import {
   TILESET_CATEGORIES,
   createEmptyTilesetRegistry,
@@ -30,7 +30,7 @@ export function subscribeToTilesets(
   let reported = false;
 
   const unsubscribes = TILESET_CATEGORIES.map((category) => {
-    const col = collection(db, getTilesetCollection(category));
+    const col = collection(getFirebaseDb(), getTilesetCollection(category));
     return onSnapshot(
       col,
       (snapshot) => {
@@ -98,7 +98,7 @@ export async function uploadTileTexture(
 
   const id = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
   const collectionName = getTilesetCollection(category);
-  const storageRef = ref(storage, `tilesets/${collectionName}/${id}`);
+  const storageRef = ref(getFirebaseStorage(), `tilesets/${collectionName}/${id}`);
   await uploadBytes(storageRef, file);
   const textureUrl = await getDownloadURL(storageRef);
 
@@ -111,7 +111,7 @@ export async function uploadTileTexture(
     pixelHeight: pxH,
   };
 
-  await setDoc(doc(db, collectionName, id), metadata);
+  await setDoc(doc(getFirebaseDb(), collectionName, id), metadata);
   return id;
 }
 
@@ -146,7 +146,7 @@ export async function seedDefaultTilesets(): Promise<void> {
   for (const category of TILESET_CATEGORIES) {
     const collectionName = getTilesetCollection(category);
     for (const [id, data] of Object.entries(DEFAULT_TILES[category])) {
-      await setDoc(doc(db, collectionName, id), data, { merge: true });
+      await setDoc(doc(getFirebaseDb(), collectionName, id), data, { merge: true });
     }
   }
 }

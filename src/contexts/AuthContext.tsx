@@ -14,7 +14,7 @@ import {
   TwitterAuthProvider,
   type User,
 } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { ensureUserProfile, saveMarketingEmail } from "@/lib/firestore/users";
 import type { UserProfile } from "@/types/user";
 
@@ -35,6 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const auth = getFirebaseAuth();
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
 
@@ -56,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithTwitter = async () => {
+    const auth = getFirebaseAuth();
     const provider = new TwitterAuthProvider();
     const result = await signInWithPopup(auth, provider);
     const profile = await ensureUserProfile(result.user);
@@ -69,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await signOut(auth);
+    await signOut(getFirebaseAuth());
     setUserProfile(null);
   };
 

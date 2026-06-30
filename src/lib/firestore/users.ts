@@ -7,7 +7,7 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import type { User } from "firebase/auth";
-import { db } from "@/lib/firebase";
+import { getFirebaseDb } from "@/lib/firebase";
 import type { UserProfile } from "@/types/user";
 
 function getAuthProvider(user: User): string {
@@ -15,7 +15,7 @@ function getAuthProvider(user: User): string {
 }
 
 export async function ensureUserProfile(user: User): Promise<UserProfile> {
-  const ref = doc(db, "users", user.uid);
+  const ref = doc(getFirebaseDb(), "users", user.uid);
   const snapshot = await getDoc(ref);
 
   if (snapshot.exists()) {
@@ -44,7 +44,7 @@ export async function saveMarketingEmail(
   uid: string,
   email: string,
 ): Promise<UserProfile> {
-  const ref = doc(db, "users", uid);
+  const ref = doc(getFirebaseDb(), "users", uid);
   await updateDoc(ref, {
     marketingEmail: email,
     termsAcceptedAt: serverTimestamp(),
@@ -55,7 +55,7 @@ export async function saveMarketingEmail(
 }
 
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
-  const snapshot = await getDoc(doc(db, "users", uid));
+  const snapshot = await getDoc(doc(getFirebaseDb(), "users", uid));
   if (!snapshot.exists()) return null;
   return snapshot.data() as UserProfile;
 }
