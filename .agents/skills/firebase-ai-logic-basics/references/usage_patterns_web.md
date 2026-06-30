@@ -141,18 +141,23 @@ const model = getGenerativeModel(ai, {
 const prompt = 'Generate an image of the Eiffel Tower with fireworks in the background.';
 
 // To generate an image, call `generateContent` with the text input
-const result = model.generateContent(prompt);
+async function generateImage(prompt) {
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
 
-// Handle the generated image
-try {
-  const inlineDataParts = result.response.inlineDataParts();
-  if (inlineDataParts?.[0]) {
-    const image = inlineDataParts[0].inlineData;
-    console.log(image.mimeType, image.data);
+  // Handle the generated image
+  try {
+    const inlineDataParts = response.inlineDataParts();
+    if (inlineDataParts?.[0]) {
+      const image = inlineDataParts[0].inlineData;
+      console.log(image.mimeType, image.data);
+    }
+  } catch (err) {
+    console.error('Prompt or candidate was blocked:', err);
   }
-} catch (err) {
-  console.error('Prompt or candidate was blocked:', err);
 }
+
+await generateImage(prompt);
 ```
 
 ## Advanced Features
