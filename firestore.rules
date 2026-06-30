@@ -26,9 +26,17 @@ service cloud.firestore {
       return url is string && url.matches("^https://.*");
     }
 
-    function isAdmin() {
+    function isConfigAdmin() {
       return isAuthenticated() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+        exists(/databases/$(database)/documents/config/app) &&
+        get(/databases/$(database)/documents/config/app).data.adminUid == request.auth.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        isConfigAdmin()
+      );
     }
 
     function isValidUser(data) {
@@ -67,6 +75,11 @@ service cloud.firestore {
     }
 
     match /admins/{uid} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /config/app {
       allow read: if isAuthenticated();
       allow write: if false;
     }
@@ -110,6 +123,12 @@ service cloud.firestore {
     }
 
     match /furniture/{tileId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /standees/{tileId} {
       allow read: if isAuthenticated();
       allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
       allow delete: if isAdmin();

@@ -3,20 +3,27 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { UserProfileBar } from "@/components/UserProfileBar";
+import { FirestoreAdminBanner } from "@/components/FirestoreAdminBanner";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRoom } from "@/hooks/useRoom";
 import { useTileset } from "@/hooks/useTileset";
 import {
   addFurnitureItem,
+  addNpcItem,
+  addPortalItem,
   ensureRoom,
   fillFloorTiles,
   removeFurnitureItem,
+  removeNpcItem,
+  removePortalItem,
   resetRoom,
   migrateFurnitureIds,
   updateDoorTile,
   updateFloorTile,
   updateFurnitureItem,
+  updateNpcItem,
+  updatePortalItem,
   updateRoomColors,
   updateWallTile,
   updateWindowTile,
@@ -33,12 +40,20 @@ import {
   getTile,
   isProtectedTileId,
   sortedTileEntries,
+  type TileCategory,
 } from "@/lib/tileset-collections";
+import {
+  ENTITY_EDITOR_TABS,
+  isTilesetEditorMode,
+  paletteCategoryForMode,
+} from "@/lib/editor-modes";
+import { NpcPortalSidebar } from "@/components/admin/NpcPortalSidebar";
 import {
   DEFAULT_FURNITURE_COLOR,
   GRID_SIZE,
   MAX_TEXTURE_PX,
   floorIndex,
+  isGridEdge,
   wallKey,
   type EditorMode,
   type WallSide,
@@ -56,12 +71,13 @@ const EditorScene = dynamic(
   },
 );
 
-const DEFAULT_SELECTION: Record<EditorMode, string> = {
+const DEFAULT_TILE_SELECTION: Record<TileCategory, string> = {
   floor: "default_floor",
   wall: "default_wall",
   door: "default_door",
   window: "default_window",
   furniture: "sofa_2x1",
+  standee: "default_standee",
 };
 
 const SELECTION_STORAGE_KEY = "agenttrials-editor-selection";
@@ -75,7 +91,7 @@ export default function AdminEditorClient() {
 
   const [mode, setMode] = useState<EditorMode>("floor");
   const [selectedByMode, setSelectedByMode] =
-    useState<Record<EditorMode, string>>(DEFAULT_SELECTION);
+    useState<Record<TileCategory, string>>(DEFAULT_TILE_SELECTION);
   const [furnitureRotation, setFurnitureRotation] = useState(0);
   const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(
     null,
@@ -113,6 +129,23 @@ export default function AdminEditorClient() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [selectedNpcId, setSelectedNpcId] = useState<string | null>(null);
+  const [selectedPortalId, setSelectedPortalId] = useState<string | null>(null);
+  const [npcName, setNpcName] = useState("Gatekeeper");
+  const [npcPrompt, setNpcPrompt] = useState(
+    "Only unlock the portal for players who are polite and make a good case.",
+  );
+  const [portalTarget, setPortalTarget] = useState("room_02");
+  const [portalSpawnX, setPortalSpawnX] = useState(6);
+  const [portalSpawnZ, setPortalSpawnZ] = useState(6);
+  const [npcGhostPosition, setNpcGhostPosition] = useState<{
+    x: number;
+    z: number;
+  } | null>(null);
+  const [portalGhostPosition, setPortalGhostPosition] = useState<{
+    x: number;
+    z: number;
+  } | null>(null);
   const dragPaintingRef = useRef(false);
   const lastPaintedFloorRef = useRef<string | null>(null);
   const lastPaintedWallRef = useRef<string | null>(null);
@@ -137,13 +170,16 @@ export default function AdminEditorClient() {
     };
   }, [pendingPreviewUrl]);
 
-  const selectedTileId = selectedByMode[mode];
+  const paletteCategory = paletteCategoryForMode(mode);
+  const selectedTileId = paletteCategory
+    ? selectedByMode[paletteCategory]
+    : selectedByMode.standee;
 
   useEffect(() => {
     try {
       const stored = sessionStorage.getItem(SELECTION_STORAGE_KEY);
       if (stored) {
-        setSelectedByMode({ ...DEFAULT_SELECTION, ...JSON.parse(stored) });
+        setSelectedByMode({ ...DEFAULT_TILE_SELECTION, ...JSON.parse(stored) });
       }
     } catch {
       // ignore invalid stored selection
@@ -229,8 +265,13 @@ export default function AdminEditorClient() {
     occupied,
   ]);
 
+  const portalGhostValid = useMemo(() => {
+    if (!portalGhostPosition || mode !== "portal") return false;
+    return isGridEdge(portalGhostPosition.x, portalGhostPosition.z);
+  }, [portalGhostPosition, mode]);
+
   const brushPreview = useMemo(() => {
-    if (mode === "furniture") return null;
+    if (!isTilesetEditorMode(mode) || mode === "furniture") return null;
     if (mode === "floor" && hoverFloor) {
       return {
         category: "floor" as const,
@@ -252,10 +293,13 @@ export default function AdminEditorClient() {
   }, [mode, hoverFloor, hoverWall, selectedTileId]);
 
   const paletteItems = useMemo(
-    () => sortedTileEntries(tilesets[mode]),
-    [tilesets, mode],
+    () =>
+      paletteCategory ? sortedTileEntries(tilesets[paletteCategory]) : [],
+    [tilesets, paletteCategory],
   );
-  const selectedTile = getTile(tilesets, mode, selectedTileId);
+  const selectedTile = paletteCategory
+    ? getTile(tilesets, paletteCategory, selectedTileId)
+    : undefined;
 
   useEffect(() => {
     setRenameValue(selectedTile?.name ?? "");
@@ -264,7 +308,8 @@ export default function AdminEditorClient() {
   }, [selectedTileId, mode, selectedTile?.name]);
 
   const selectItem = (id: string) => {
-    setSelectedByMode((prev) => ({ ...prev, [mode]: id }));
+    if (!paletteCategory) return;
+    setSelectedByMode((prev) => ({ ...prev, [paletteCategory]: id }));
     if (mode === "furniture") {
       setSelectedFurnitureId(null);
     }
@@ -276,7 +321,12 @@ export default function AdminEditorClient() {
     try {
       await action();
     } catch (err) {
-      setPaintError(err instanceof Error ? err.message : "Could not save paint");
+      const message = err instanceof Error ? err.message : "Could not save paint";
+      setPaintError(
+        message.includes("permission") || message.includes("Permission")
+          ? "Missing Firestore admin setup — add config/app with your adminUid in Firebase Console, then deploy rules."
+          : message,
+      );
     } finally {
       setPainting(false);
     }
@@ -336,6 +386,40 @@ export default function AdminEditorClient() {
         setGhostPosition(null);
       }
       return;
+    }
+
+    if (mode === "npc") {
+      const occupied = room.npcs.some((n) => n.x === x && n.z === z);
+      if (occupied) return;
+      void runPaint(() =>
+        addNpcItem(roomId, {
+          id: `npc_${Date.now()}`,
+          standeeType: selectedTileId,
+          x,
+          z,
+          name: npcName.trim() || "NPC",
+          prompt: npcPrompt.trim(),
+        }),
+      );
+      setNpcGhostPosition(null);
+      return;
+    }
+
+    if (mode === "portal") {
+      if (!isGridEdge(x, z)) return;
+      const occupied = room.portals.some((p) => p.x === x && p.z === z);
+      if (occupied) return;
+      void runPaint(() =>
+        addPortalItem(roomId, {
+          id: `portal_${Date.now()}`,
+          x,
+          z,
+          targetRoomId: portalTarget.trim() || "room_02",
+          spawnX: portalSpawnX,
+          spawnZ: portalSpawnZ,
+        }),
+      );
+      setPortalGhostPosition(null);
     }
   };
 
@@ -403,9 +487,53 @@ export default function AdminEditorClient() {
     });
   };
 
+  const handleNpcSelect = (id: string) => {
+    if (!room) return;
+    setSelectedNpcId(id);
+    const npc = room.npcs.find((n) => n.id === id);
+    if (npc) {
+      setNpcName(npc.name);
+      setNpcPrompt(npc.prompt);
+      setSelectedByMode((prev) => ({ ...prev, standee: npc.standeeType }));
+    }
+  };
+
+  const handlePortalSelect = (id: string) => {
+    if (!room) return;
+    setSelectedPortalId(id);
+    const portal = room.portals.find((p) => p.id === id);
+    if (portal) {
+      setPortalTarget(portal.targetRoomId);
+      setPortalSpawnX(portal.spawnX);
+      setPortalSpawnZ(portal.spawnZ);
+    }
+  };
+
+  const handleSaveNpcFields = () => {
+    if (!selectedNpcId) return;
+    void runPaint(() =>
+      updateNpcItem(roomId, selectedNpcId, {
+        name: npcName.trim() || "NPC",
+        prompt: npcPrompt.trim(),
+        standeeType: selectedTileId,
+      }),
+    );
+  };
+
+  const handleSavePortalFields = () => {
+    if (!selectedPortalId) return;
+    void runPaint(() =>
+      updatePortalItem(roomId, selectedPortalId, {
+        targetRoomId: portalTarget.trim() || "room_02",
+        spawnX: portalSpawnX,
+        spawnZ: portalSpawnZ,
+      }),
+    );
+  };
+
   const handleResetRoom = () => {
     const confirmed = window.confirm(
-      `Reset “${roomId}”? This deletes all furniture, floor paint, doors, and windows and restores the default room.`,
+      `Reset “${roomId}”? This deletes all furniture, NPCs, portals, floor paint, doors, and windows.`,
     );
     if (!confirmed) return;
 
@@ -415,7 +543,11 @@ export default function AdminEditorClient() {
       .then(() => {
         setSelectedFurnitureId(null);
         setFurnitureColor(DEFAULT_FURNITURE_COLOR);
+        setSelectedNpcId(null);
+        setSelectedPortalId(null);
         setGhostPosition(null);
+        setNpcGhostPosition(null);
+        setPortalGhostPosition(null);
       })
       .catch((err) => {
         setPaintError(err instanceof Error ? err.message : "Reset failed");
@@ -432,13 +564,13 @@ export default function AdminEditorClient() {
 
   const handleRename = async () => {
     const trimmed = renameValue.trim();
-    if (!trimmed || trimmed === selectedTile?.name) return;
+    if (!trimmed || trimmed === selectedTile?.name || !paletteCategory) return;
 
     setRenaming(true);
     setRenameError(null);
     try {
-      await renameTile(mode, selectedTileId, trimmed);
-      renameTileName(mode, selectedTileId, trimmed);
+      await renameTile(paletteCategory, selectedTileId, trimmed);
+      renameTileName(paletteCategory, selectedTileId, trimmed);
     } catch (err) {
       setRenameError(err instanceof Error ? err.message : "Rename failed");
     } finally {
@@ -447,7 +579,7 @@ export default function AdminEditorClient() {
   };
 
   const handleDelete = async () => {
-    if (!selectedTile || isProtectedTileId(selectedTileId)) return;
+    if (!selectedTile || isProtectedTileId(selectedTileId) || !paletteCategory) return;
 
     const confirmed = window.confirm(
       `Delete “${selectedTile.name}” from the tileset? Rooms already painted with this tile will show the base color.`,
@@ -457,13 +589,13 @@ export default function AdminEditorClient() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await deleteTile(mode, selectedTileId);
-      removeTile(mode, selectedTileId);
+      await deleteTile(paletteCategory, selectedTileId);
+      removeTile(paletteCategory, selectedTileId);
 
-      const remaining = sortedTileEntries(tilesets[mode]).filter(
+      const remaining = sortedTileEntries(tilesets[paletteCategory]).filter(
         ([id]) => id !== selectedTileId,
       );
-      const nextId = remaining[0]?.[0] ?? DEFAULT_SELECTION[mode];
+      const nextId = remaining[0]?.[0] ?? DEFAULT_TILE_SELECTION[paletteCategory];
       selectItem(nextId);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Delete failed");
@@ -495,7 +627,7 @@ export default function AdminEditorClient() {
   };
 
   const handleUpload = async () => {
-    if (!pendingFile || !pendingTileName.trim()) return;
+    if (!pendingFile || !pendingTileName.trim() || !paletteCategory) return;
     setUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
@@ -503,17 +635,17 @@ export default function AdminEditorClient() {
       const { id, tile } = await uploadTileTexture({
         file: pendingFile,
         name: pendingTileName.trim(),
-        category: mode,
+        category: paletteCategory,
         pixelWidth,
         pixelHeight,
-        gridWidth: mode === "furniture" ? gridWidth : 1,
-        gridDepth: mode === "furniture" ? gridDepth : 1,
+        gridWidth: paletteCategory === "furniture" ? gridWidth : 1,
+        gridDepth: paletteCategory === "furniture" ? gridDepth : 1,
       });
-      addTile(mode, id, tile);
+      addTile(paletteCategory, id, tile);
       selectItem(id);
       clearPendingUpload();
       setUploadSuccess(
-        `“${tile.name}” saved to ${EDITOR_TAB_LABELS[mode]} tileset`,
+        `“${tile.name}” saved to ${EDITOR_TAB_LABELS[paletteCategory]} tileset`,
       );
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
@@ -555,6 +687,8 @@ export default function AdminEditorClient() {
           </div>
         </header>
 
+        <FirestoreAdminBanner />
+
         {paintError && (
           <div className="absolute left-4 right-4 top-14 z-10 rounded bg-red-950/90 px-3 py-2 text-xs text-red-300">
             {paintError}
@@ -571,17 +705,26 @@ export default function AdminEditorClient() {
             tilesets={tilesets}
             mode={mode}
             selectedTileId={selectedTileId}
-            selectedFurnitureType={selectedTileId}
+            selectedFurnitureType={selectedByMode.furniture}
             selectedFurnitureId={selectedFurnitureId}
+            selectedNpcId={selectedNpcId}
+            selectedPortalId={selectedPortalId}
             furnitureRotation={furnitureRotation}
             ghostPosition={ghostPosition}
             ghostValid={ghostValid}
+            npcGhostPosition={npcGhostPosition}
+            portalGhostPosition={portalGhostPosition}
+            portalGhostValid={portalGhostValid}
             brushPreview={brushPreview}
             onFloorClick={handleFloorClick}
             onWallClick={handleWallClick}
             onFloorHover={(x, z) => {
               if (mode === "furniture") {
                 setGhostPosition({ x, z });
+              } else if (mode === "npc") {
+                setNpcGhostPosition({ x, z });
+              } else if (mode === "portal") {
+                setPortalGhostPosition({ x, z });
               } else if (mode === "floor") {
                 setHoverFloor({ x, z });
                 if (dragPaintingRef.current) {
@@ -592,6 +735,10 @@ export default function AdminEditorClient() {
             onFloorHoverEnd={() => {
               if (mode === "furniture") {
                 setGhostPosition(null);
+              } else if (mode === "npc") {
+                setNpcGhostPosition(null);
+              } else if (mode === "portal") {
+                setPortalGhostPosition(null);
               } else if (mode === "floor") {
                 setHoverFloor(null);
               }
@@ -610,6 +757,8 @@ export default function AdminEditorClient() {
               }
             }}
             onFurnitureSelect={handleFurnitureSelect}
+            onNpcSelect={handleNpcSelect}
+            onPortalSelect={handlePortalSelect}
           />
         )}
       </div>
@@ -623,11 +772,15 @@ export default function AdminEditorClient() {
               onClick={() => {
                 setMode(tabMode);
                 setGhostPosition(null);
+                setNpcGhostPosition(null);
+                setPortalGhostPosition(null);
                 setHoverFloor(null);
                 setHoverWall(null);
                 clearPendingUpload();
                 setUploadSuccess(null);
                 setSelectedFurnitureId(null);
+                setSelectedNpcId(null);
+                setSelectedPortalId(null);
               }}
               className={`rounded-lg px-2.5 py-1.5 text-xs ${
                 mode === tabMode
@@ -638,7 +791,73 @@ export default function AdminEditorClient() {
               {label}
             </button>
           ))}
+          {ENTITY_EDITOR_TABS.map(({ mode: tabMode, label }) => (
+            <button
+              key={tabMode}
+              type="button"
+              onClick={() => {
+                setMode(tabMode);
+                setGhostPosition(null);
+                setNpcGhostPosition(null);
+                setPortalGhostPosition(null);
+                setHoverFloor(null);
+                setHoverWall(null);
+                clearPendingUpload();
+                setUploadSuccess(null);
+                setSelectedFurnitureId(null);
+                setSelectedNpcId(null);
+                setSelectedPortalId(null);
+              }}
+              className={`rounded-lg px-2.5 py-1.5 text-xs ${
+                mode === tabMode
+                  ? "bg-sky-100 text-sky-950"
+                  : "bg-zinc-800 text-zinc-300"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
+
+        {room && (mode === "npc" || mode === "portal") && (
+          <NpcPortalSidebar
+            mode={mode}
+            painting={painting}
+            npcName={npcName}
+            npcPrompt={npcPrompt}
+            portalTarget={portalTarget}
+            portalSpawnX={portalSpawnX}
+            portalSpawnZ={portalSpawnZ}
+            selectedNpcId={selectedNpcId}
+            selectedPortalId={selectedPortalId}
+            npcs={room.npcs}
+            portals={room.portals}
+            standeePalette={sortedTileEntries(tilesets.standee)}
+            selectedStandeeId={selectedTileId}
+            onSelectStandee={(id) => selectItem(id)}
+            onNpcNameChange={setNpcName}
+            onNpcPromptChange={setNpcPrompt}
+            onPortalTargetChange={setPortalTarget}
+            onPortalSpawnXChange={setPortalSpawnX}
+            onPortalSpawnZChange={setPortalSpawnZ}
+            onSelectNpc={handleNpcSelect}
+            onSelectPortal={handlePortalSelect}
+            onRemoveNpc={(id) =>
+              void runPaint(async () => {
+                await removeNpcItem(roomId, id);
+                if (selectedNpcId === id) setSelectedNpcId(null);
+              })
+            }
+            onRemovePortal={(id) =>
+              void runPaint(async () => {
+                await removePortalItem(roomId, id);
+                if (selectedPortalId === id) setSelectedPortalId(null);
+              })
+            }
+            onSaveNpcFields={handleSaveNpcFields}
+            onSavePortalFields={handleSavePortalFields}
+          />
+        )}
 
         {(mode === "floor" || mode === "wall") && room && (
           <div className="mb-4 space-y-2">
@@ -808,8 +1027,10 @@ export default function AdminEditorClient() {
           </p>
         )}
 
+        {isTilesetEditorMode(mode) && paletteCategory && (
+          <>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          {EDITOR_TAB_LABELS[mode]} tileset
+          {EDITOR_TAB_LABELS[paletteCategory]} tileset
         </h2>
         <p className="mb-2 text-[10px] text-zinc-500">
           Sorted A–Z. Tileset uploads and room paint save to the cloud immediately.
@@ -1045,6 +1266,8 @@ export default function AdminEditorClient() {
             <p className="text-xs text-red-400">{uploadError}</p>
           )}
         </div>
+          </>
+        )}
       </aside>
     </div>
   );

@@ -38,6 +38,7 @@ export function subscribeToTilesets(
       door: { ...registry.door },
       window: { ...registry.window },
       furniture: { ...registry.furniture },
+      standee: { ...registry.standee },
     });
   };
 
@@ -198,6 +199,9 @@ const DEFAULT_TILES: Record<
   furniture: {
     sofa_2x1: tile("Sofa 2x1", 2, 1),
     desk_2x2: tile("Large Desk 2x2", 2, 2),
+  },
+  standee: {
+    default_standee: tile("Default Standee", 1, 1),
   },
 };
 

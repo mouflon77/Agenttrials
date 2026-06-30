@@ -20,7 +20,11 @@ function AdminSetupCard() {
           NEXT_PUBLIC_ADMIN_UID
         </code>{" "}
         in <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">.env.local</code>{" "}
-        and App Hosting env, then create an empty Firestore doc at{" "}
+        and App Hosting env, then in Firestore create document{" "}
+        <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">config/app</code>{" "}
+        with field{" "}
+        <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">adminUid</code>{" "}
+        (string) = your UID below. Alternatively create an empty doc at{" "}
         <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
           admins/{user.uid}
         </code>

@@ -10,10 +10,13 @@ import {
   getWallTransform,
   wallKey,
 } from "@/types/room";
-import type { EditorMode, RoomDocument, WallSide } from "@/types/room";
+import type { EditorMode, NpcItem, PlayerPosition, PortalItem, RoomDocument, WallSide } from "@/types/room";
 import { Tile } from "@/components/room/Tile";
 import { FloorLayer, getUniformFloor } from "@/components/room/FloorLayer";
 import { FurnitureGhost, FurnitureMesh } from "@/components/room/Furniture";
+import { StandeeMesh } from "@/components/room/Standee";
+import { PortalMesh } from "@/components/room/Portal";
+import { PlayerAvatar } from "@/components/room/PlayerAvatar";
 
 interface RoomProps {
   room: RoomDocument;
@@ -38,6 +41,18 @@ interface RoomProps {
   onWallHover?: (side: WallSide, along: number, height: number) => void;
   onWallHoverEnd?: () => void;
   onFurnitureSelect?: (id: string) => void;
+  playMode?: boolean;
+  playerPosition?: PlayerPosition | null;
+  unlockedPortalIds?: Set<string>;
+  onPortalEnter?: (portalId: string) => void;
+  onFloorStep?: (x: number, z: number) => void;
+  selectedNpcId?: string | null;
+  onNpcSelect?: (id: string) => void;
+  selectedPortalId?: string | null;
+  onPortalSelect?: (id: string) => void;
+  npcGhostPosition?: { x: number; z: number } | null;
+  portalGhostPosition?: { x: number; z: number } | null;
+  portalGhostValid?: boolean;
 }
 
 function resolveTile(
@@ -91,6 +106,18 @@ export function Room({
   onWallHover,
   onWallHoverEnd,
   onFurnitureSelect,
+  playMode = false,
+  playerPosition = null,
+  unlockedPortalIds,
+  onPortalEnter,
+  onFloorStep,
+  selectedNpcId = null,
+  onNpcSelect,
+  selectedPortalId = null,
+  onPortalSelect,
+  npcGhostPosition = null,
+  portalGhostPosition = null,
+  portalGhostValid = false,
 }: RoomProps) {
   const floorTiles = useMemo(() => {
     const tiles = [];
@@ -207,11 +234,18 @@ export function Room({
     return getUniformFloor(floorTiles, textureMap, room.floorColor);
   }, [floorTiles, floorCellTextures, room.floorColor]);
 
-  const floorInteractive = Boolean(onFloorClick);
+  const floorInteractive = Boolean(onFloorClick) || Boolean(playMode && onFloorStep);
+  const floorPaintHandler = onFloorClick
+    ? onFloorClick
+    : playMode && onFloorStep
+      ? onFloorStep
+      : undefined;
   const highlightedFloorCell =
     brushPreview?.category === "floor" ? brushPreview.floorCell : null;
 
   const furniturePickable = editorMode === "furniture";
+  const npcPickable = editorMode === "npc";
+  const portalPickable = editorMode === "portal";
 
   return (
     <Suspense fallback={null}>
@@ -224,7 +258,7 @@ export function Room({
           interactive={floorInteractive}
           highlightedCell={highlightedFloorCell}
           highlightTextureUrl={brushResolved?.textureUrl}
-          onPaint={onFloorClick}
+          onPaint={floorPaintHandler}
           onPointerOver={onFloorHover}
           onPointerOut={onFloorHoverEnd}
         />
@@ -305,6 +339,61 @@ export function Room({
             onSelect={onFurnitureSelect}
           />
         ))}
+
+        {room.npcs.map((npc) => (
+          <StandeeMesh
+            key={npc.id}
+            npc={npc}
+            tilesets={tilesets}
+            pickable={npcPickable}
+            selected={npcPickable && selectedNpcId === npc.id}
+            onSelect={onNpcSelect}
+          />
+        ))}
+
+        {room.portals.map((portal) => (
+          <PortalMesh
+            key={portal.id}
+            portal={portal}
+            unlocked={unlockedPortalIds?.has(portal.id) ?? false}
+            pickable={portalPickable}
+            selected={portalPickable && selectedPortalId === portal.id}
+            onSelect={onPortalSelect}
+            playerOnTile={
+              playerPosition?.x === portal.x && playerPosition?.z === portal.z
+            }
+            onEnter={onPortalEnter}
+          />
+        ))}
+
+        {playMode && playerPosition && <PlayerAvatar position={playerPosition} />}
+
+        {editorMode === "npc" && npcGhostPosition && (
+          <StandeeMesh
+            npc={{
+              id: "ghost",
+              standeeType: selectedTileId ?? "default_standee",
+              x: npcGhostPosition.x,
+              z: npcGhostPosition.z,
+              name: "NPC",
+              prompt: "",
+            }}
+            tilesets={tilesets}
+          />
+        )}
+
+        {editorMode === "portal" && portalGhostPosition && (
+          <group position={[portalGhostPosition.x + 0.5, 0, portalGhostPosition.z + 0.5]}>
+            <mesh position={[0, 0.55, 0]}>
+              <cylinderGeometry args={[0.42, 0.42, 0.12, 6]} />
+              <meshStandardMaterial
+                color={portalGhostValid ? "#4ade80" : "#f87171"}
+                transparent
+                opacity={0.55}
+              />
+            </mesh>
+          </group>
+        )}
 
         {editorMode === "furniture" && ghostPosition && (
           <FurnitureGhost

@@ -11,6 +11,7 @@ export const TILESET_COLLECTIONS = {
   door: "doors",
   window: "windows",
   furniture: "furniture",
+  standee: "standees",
 } as const;
 
 export type TileCategory = keyof typeof TILESET_COLLECTIONS;
@@ -27,6 +28,7 @@ export const EDITOR_TAB_LABELS: Record<TileCategory, string> = {
   door: "Doors",
   window: "Windows",
   furniture: "Furniture",
+  standee: "Standees",
 };
 
 export const EDITOR_TABS = TILESET_CATEGORIES.map((mode) => ({
@@ -50,6 +52,7 @@ export function createEmptyTilesetRegistry(): TilesetRegistry {
     door: {},
     window: {},
     furniture: {},
+    standee: {},
   };
 }
 
@@ -84,6 +87,7 @@ export const PROTECTED_TILE_IDS = new Set([
   "default_window",
   "sofa_2x1",
   "desk_2x2",
+  "default_standee",
 ]);
 
 export function isProtectedTileId(tileId: string): boolean {

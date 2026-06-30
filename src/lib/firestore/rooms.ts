@@ -12,7 +12,11 @@ import {
   FLOOR_TILE_COUNT,
   normalizeRoom,
   normalizeFurniture,
+  normalizeNpcs,
+  normalizePortals,
   type FurnitureItem,
+  type NpcItem,
+  type PortalItem,
   type RoomDocument,
 } from "@/types/room";
 
@@ -171,6 +175,87 @@ export async function removeFurnitureItem(
   await updateDoc(ref, {
     furniture: normalizeFurniture(
       room.furniture.filter((item) => item.id !== itemId),
+    ),
+  });
+}
+
+async function readRoom(roomId: string): Promise<RoomDocument | null> {
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  const { getDoc } = await import("firebase/firestore");
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return normalizeRoom(snap.data() as Partial<RoomDocument>);
+}
+
+export async function addNpcItem(roomId: string, item: NpcItem): Promise<void> {
+  const room = await readRoom(roomId);
+  const current = room?.npcs ?? [];
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, { npcs: [...current, item] });
+}
+
+export async function updateNpcItem(
+  roomId: string,
+  itemId: string,
+  patch: Partial<Pick<NpcItem, "x" | "z" | "standeeType" | "name" | "prompt">>,
+): Promise<void> {
+  const room = await readRoom(roomId);
+  if (!room) return;
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  const npcs = room.npcs.map((item) =>
+    item.id === itemId ? { ...item, ...patch } : item,
+  );
+  await updateDoc(ref, { npcs: normalizeNpcs(npcs) });
+}
+
+export async function removeNpcItem(
+  roomId: string,
+  itemId: string,
+): Promise<void> {
+  const room = await readRoom(roomId);
+  if (!room) return;
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, {
+    npcs: normalizeNpcs(room.npcs.filter((item) => item.id !== itemId)),
+  });
+}
+
+export async function addPortalItem(
+  roomId: string,
+  item: PortalItem,
+): Promise<void> {
+  const room = await readRoom(roomId);
+  const current = room?.portals ?? [];
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, { portals: [...current, item] });
+}
+
+export async function updatePortalItem(
+  roomId: string,
+  itemId: string,
+  patch: Partial<
+    Pick<PortalItem, "x" | "z" | "targetRoomId" | "spawnX" | "spawnZ">
+  >,
+): Promise<void> {
+  const room = await readRoom(roomId);
+  if (!room) return;
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  const portals = room.portals.map((item) =>
+    item.id === itemId ? { ...item, ...patch } : item,
+  );
+  await updateDoc(ref, { portals: normalizePortals(portals) });
+}
+
+export async function removePortalItem(
+  roomId: string,
+  itemId: string,
+): Promise<void> {
+  const room = await readRoom(roomId);
+  if (!room) return;
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, {
+    portals: normalizePortals(
+      room.portals.filter((item) => item.id !== itemId),
     ),
   });
 }
