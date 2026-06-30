@@ -25,7 +25,7 @@ runConfig:
 #       - BUILD
 #       - RUNTIME
 #   - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-#     value: agenttrials-xo.firebasestorage.app
+#     value: agenttrials-xo.firebasestorage.app  # NOT .appspot.com
 #     availability:
 #       - BUILD
 #       - RUNTIME

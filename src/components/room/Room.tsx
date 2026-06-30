@@ -12,6 +12,7 @@ import {
 } from "@/types/room";
 import type { EditorMode, RoomDocument, WallSide } from "@/types/room";
 import { Tile } from "@/components/room/Tile";
+import { FloorLayer, getUniformFloor } from "@/components/room/FloorLayer";
 import { FurnitureGhost, FurnitureMesh } from "@/components/room/Furniture";
 
 interface RoomProps {
@@ -20,13 +21,23 @@ interface RoomProps {
   editorMode?: EditorMode;
   selectedTileId?: string;
   selectedFurnitureType?: string;
+  selectedFurnitureId?: string | null;
   furnitureRotation?: number;
   ghostPosition?: { x: number; z: number } | null;
   ghostValid?: boolean;
+  brushPreview?: {
+    category: "floor" | "wall" | "door" | "window";
+    tileId: string;
+    floorCell?: { x: number; z: number };
+    wallCell?: { side: WallSide; along: number; height: number };
+  } | null;
   onFloorClick?: (x: number, z: number) => void;
   onWallClick?: (side: WallSide, along: number, height: number) => void;
   onFloorHover?: (x: number, z: number) => void;
   onFloorHoverEnd?: () => void;
+  onWallHover?: (side: WallSide, along: number, height: number) => void;
+  onWallHoverEnd?: () => void;
+  onFurnitureSelect?: (id: string) => void;
 }
 
 function resolveTile(
@@ -47,19 +58,39 @@ function isActiveOverlay(tileId: string | undefined): boolean {
   return Boolean(tileId && tileId !== "none" && tileId !== "");
 }
 
+function isWallHighlighted(
+  brushPreview: RoomProps["brushPreview"],
+  category: "wall" | "door" | "window",
+  side: WallSide,
+  along: number,
+  height: number,
+): boolean {
+  return (
+    brushPreview?.category === category &&
+    brushPreview.wallCell?.side === side &&
+    brushPreview.wallCell?.along === along &&
+    brushPreview.wallCell?.height === height
+  );
+}
+
 export function Room({
   room,
   tilesets,
   editorMode,
   selectedTileId,
   selectedFurnitureType,
+  selectedFurnitureId = null,
   furnitureRotation = 0,
   ghostPosition,
   ghostValid = false,
+  brushPreview,
   onFloorClick,
   onWallClick,
   onFloorHover,
   onFloorHoverEnd,
+  onWallHover,
+  onWallHoverEnd,
+  onFurnitureSelect,
 }: RoomProps) {
   const floorTiles = useMemo(() => {
     const tiles = [];
@@ -145,30 +176,69 @@ export function Room({
       ? onWallClick
       : undefined;
 
+  const brushResolved = brushPreview
+    ? resolveTile(tilesets, brushPreview.category, brushPreview.tileId)
+    : null;
+
+  const floorCellTextures = useMemo(() => {
+    const map = new Map<
+      string,
+      { textureUrl?: string; pixelWidth: number; pixelHeight: number }
+    >();
+    for (const { tileId } of floorTiles) {
+      if (map.has(tileId)) continue;
+      const resolved = resolveTile(tilesets, "floor", tileId);
+      map.set(tileId, {
+        textureUrl: resolved?.textureUrl,
+        pixelWidth: resolved?.pixelWidth ?? 64,
+        pixelHeight: resolved?.pixelHeight ?? 64,
+      });
+    }
+    return map;
+  }, [floorTiles, tilesets]);
+
+  const uniformFloor = useMemo(() => {
+    const textureMap = new Map(
+      [...floorCellTextures.entries()].map(([id, value]) => [
+        id,
+        { textureUrl: value.textureUrl, color: room.floorColor },
+      ]),
+    );
+    return getUniformFloor(floorTiles, textureMap, room.floorColor);
+  }, [floorTiles, floorCellTextures, room.floorColor]);
+
+  const floorInteractive = Boolean(onFloorClick);
+  const highlightedFloorCell =
+    brushPreview?.category === "floor" ? brushPreview.floorCell : null;
+
+  const furniturePickable = editorMode === "furniture";
+
   return (
     <Suspense fallback={null}>
       <group>
-        {floorTiles.map(({ x, z, index, tileId }) => {
-          const resolved = resolveTile(tilesets, "floor", tileId);
-          return (
-            <Tile
-              key={`floor-${index}`}
-              textureUrl={resolved?.textureUrl}
-              pixelWidth={resolved?.pixelWidth}
-              pixelHeight={resolved?.pixelHeight}
-              color={room.floorColor}
-              position={[x + 0.5, 0.001, z + 0.5]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              onClick={() => onFloorClick?.(x, z)}
-              onPointerOver={() => onFloorHover?.(x, z)}
-              onPointerOut={() => onFloorHoverEnd?.()}
-            />
-          );
-        })}
+        <FloorLayer
+          cells={floorTiles}
+          floorColor={room.floorColor}
+          uniform={uniformFloor}
+          cellTextures={floorCellTextures}
+          interactive={floorInteractive}
+          highlightedCell={highlightedFloorCell}
+          highlightTextureUrl={brushResolved?.textureUrl}
+          onPaint={onFloorClick}
+          onPointerOver={onFloorHover}
+          onPointerOut={onFloorHoverEnd}
+        />
 
         {wallTiles.map(({ side, along, height, key, tileId }) => {
           const resolved = resolveTile(tilesets, "wall", tileId);
           const { position, rotation } = getWallTransform(side, along, height);
+          const highlighted = isWallHighlighted(
+            brushPreview,
+            "wall",
+            side,
+            along,
+            height,
+          );
 
           return (
             <Tile
@@ -176,10 +246,16 @@ export function Room({
               textureUrl={resolved?.textureUrl}
               pixelWidth={resolved?.pixelWidth}
               pixelHeight={resolved?.pixelHeight}
+              planeWidth={1}
+              planeHeight={1}
+              highlighted={highlighted}
+              previewTextureUrl={brushResolved?.textureUrl}
               color={room.wallColor}
               position={position}
               rotation={rotation}
-              onClick={() => wallClickHandler?.(side, along, height)}
+              onPaint={() => wallClickHandler?.(side, along, height)}
+              onPointerOver={() => onWallHover?.(side, along, height)}
+              onPointerOut={() => onWallHoverEnd?.()}
             />
           );
         })}
@@ -193,36 +269,68 @@ export function Room({
           if (side === "left") inset[0] += 0.02;
           if (side === "right") inset[0] -= 0.02;
 
+          const highlighted = isWallHighlighted(
+            brushPreview,
+            kind,
+            side,
+            along,
+            height,
+          );
+
           return (
             <Tile
               key={`${kind}-${key}`}
               textureUrl={resolved?.textureUrl}
               pixelWidth={resolved?.pixelWidth}
               pixelHeight={resolved?.pixelHeight}
+              planeWidth={1}
+              planeHeight={1}
+              highlighted={highlighted}
+              previewTextureUrl={brushResolved?.textureUrl}
               color="#ffffff"
               position={inset}
               rotation={rotation}
-              onClick={() => wallClickHandler?.(side, along, height)}
+              pickable={false}
             />
           );
         })}
 
         {room.furniture.map((item) => (
-          <FurnitureMesh key={item.id} item={item} tilesets={tilesets} />
+          <FurnitureMesh
+            key={item.id}
+            item={item}
+            tilesets={tilesets}
+            pickable={furniturePickable}
+            selected={furniturePickable && selectedFurnitureId === item.id}
+            onSelect={onFurnitureSelect}
+          />
         ))}
 
-        {editorMode === "furniture" &&
-          ghostPosition &&
-          selectedFurnitureType && (
-            <FurnitureGhost
-              x={ghostPosition.x}
-              z={ghostPosition.z}
-              type={selectedFurnitureType}
-              rotation={furnitureRotation}
-              tilesets={tilesets}
-              valid={ghostValid}
-            />
-          )}
+        {editorMode === "furniture" && ghostPosition && (
+          <FurnitureGhost
+            x={ghostPosition.x}
+            z={ghostPosition.z}
+            type={
+              selectedFurnitureId
+                ? (room.furniture.find((f) => f.id === selectedFurnitureId)
+                    ?.type ?? selectedFurnitureType ?? "sofa_2x1")
+                : (selectedFurnitureType ?? "sofa_2x1")
+            }
+            rotation={
+              selectedFurnitureId
+                ? (room.furniture.find((f) => f.id === selectedFurnitureId)
+                    ?.rotation ?? furnitureRotation)
+                : furnitureRotation
+            }
+            color={
+              selectedFurnitureId
+                ? room.furniture.find((f) => f.id === selectedFurnitureId)?.color
+                : undefined
+            }
+            tilesets={tilesets}
+            valid={ghostValid}
+          />
+        )}
       </group>
     </Suspense>
   );

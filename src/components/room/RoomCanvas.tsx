@@ -3,18 +3,26 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { ReactNode } from "react";
+import { MOUSE } from "three";
 
 interface RoomCanvasProps {
   children: ReactNode;
   enableControls?: boolean;
+  /** Left-click paints tiles; right/middle orbit the camera. */
+  paintMode?: boolean;
 }
 
-export function RoomCanvas({ children, enableControls = true }: RoomCanvasProps) {
+export function RoomCanvas({
+  children,
+  enableControls = true,
+  paintMode = false,
+}: RoomCanvasProps) {
   return (
     <Canvas
       orthographic
-      shadows
       className="h-full w-full"
+      dpr={[1, 2]}
+      gl={{ antialias: true, alpha: false }}
       camera={{
         zoom: 42,
         position: [12, 12, 12],
@@ -25,16 +33,24 @@ export function RoomCanvas({ children, enableControls = true }: RoomCanvasProps)
         camera.lookAt(6, 0, 6);
       }}
     >
-      <ambientLight intensity={0.85} />
-      <directionalLight position={[8, 14, 6]} intensity={1.1} castShadow />
+      <ambientLight intensity={1} />
+      <directionalLight position={[8, 14, 6]} intensity={0.35} />
       {children}
       {enableControls && (
         <OrbitControls
-          enablePan
+          enablePan={!paintMode}
           enableZoom
           minZoom={30}
           maxZoom={80}
           target={[6, 0, 6]}
+          mouseButtons={
+            paintMode
+              ? {
+                  MIDDLE: MOUSE.DOLLY,
+                  RIGHT: MOUSE.ROTATE,
+                }
+              : undefined
+          }
         />
       )}
     </Canvas>

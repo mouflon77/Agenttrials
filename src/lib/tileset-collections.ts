@@ -67,3 +67,25 @@ export function isTilesetRegistryEmpty(registry: TilesetRegistry): boolean {
     (category) => Object.keys(registry[category]).length === 0,
   );
 }
+
+export function sortedTileEntries(
+  tiles: Record<string, TilesetDocument>,
+): Array<[string, TilesetDocument]> {
+  return Object.entries(tiles).sort(([, a], [, b]) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+  );
+}
+
+/** Built-in tiles that cannot be removed from the tileset. */
+export const PROTECTED_TILE_IDS = new Set([
+  "default_floor",
+  "default_wall",
+  "default_door",
+  "default_window",
+  "sofa_2x1",
+  "desk_2x2",
+]);
+
+export function isProtectedTileId(tileId: string): boolean {
+  return PROTECTED_TILE_IDS.has(tileId);
+}

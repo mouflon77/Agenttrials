@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useLoader } from "@react-three/fiber";
-import { NearestFilter, TextureLoader, type Texture } from "three";
+import type { ThreeEvent } from "@react-three/fiber";
+import {
+  getCachedPixelTexture,
+  loadPixelTexture,
+} from "@/lib/tile-textures";
 import { planeSizeFromPixels } from "@/types/room";
 
 interface TileProps {
@@ -12,60 +15,176 @@ interface TileProps {
   rotation?: [number, number, number];
   pixelWidth?: number;
   pixelHeight?: number;
-  onClick?: () => void;
+  planeWidth?: number;
+  planeHeight?: number;
+  highlighted?: boolean;
+  previewTextureUrl?: string;
+  pickable?: boolean;
+  onPaint?: () => void;
   onPointerOver?: () => void;
   onPointerOut?: () => void;
   opacity?: number;
 }
 
-function configurePixelTexture(texture: Texture) {
-  texture.magFilter = NearestFilter;
-  texture.minFilter = NearestFilter;
-  texture.needsUpdate = true;
+function handlePointer(
+  event: ThreeEvent<PointerEvent>,
+  pickable: boolean,
+  handler?: () => void,
+) {
+  if (!pickable) return;
+  event.stopPropagation();
+  handler?.();
 }
 
-function TexturedTile({
-  textureUrl,
+function paintOnPointerDown(
+  event: ThreeEvent<PointerEvent>,
+  pickable: boolean,
+  onPaint?: () => void,
+) {
+  if (!pickable || event.button !== 0) return;
+  event.stopPropagation();
+  onPaint?.();
+}
+
+function ColoredPlane({
   color,
   position,
   rotation = [0, 0, 0],
-  pixelWidth = 64,
-  pixelHeight = 64,
-  onClick,
+  width,
+  height,
+  highlighted = false,
+  pickable = true,
+  onPaint,
   onPointerOver,
   onPointerOut,
   opacity = 1,
-}: TileProps & { textureUrl: string }) {
-  const texture = useLoader(TextureLoader, textureUrl);
-  const { width, height } = planeSizeFromPixels(pixelWidth, pixelHeight);
-
-  useEffect(() => {
-    configurePixelTexture(texture);
-  }, [texture]);
+}: {
+  color: string;
+  position: [number, number, number];
+  rotation?: [number, number, number];
+  width: number;
+  height: number;
+  highlighted?: boolean;
+  pickable?: boolean;
+  onPaint?: () => void;
+  onPointerOver?: () => void;
+  onPointerOut?: () => void;
+  opacity?: number;
+}) {
+  const displayColor = highlighted ? "#e8f4ff" : color;
+  const displayOpacity = highlighted ? Math.max(opacity, 0.55) : opacity;
 
   return (
     <mesh
       position={position}
       rotation={rotation}
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick?.();
-      }}
-      onPointerOver={(event) => {
-        event.stopPropagation();
-        onPointerOver?.();
-      }}
-      onPointerOut={(event) => {
-        event.stopPropagation();
-        onPointerOut?.();
-      }}
+      raycast={pickable ? undefined : () => null}
+      onPointerDown={(event) => paintOnPointerDown(event, pickable, onPaint)}
+      onPointerOver={(event) => handlePointer(event, pickable, onPointerOver)}
+      onPointerOut={(event) => handlePointer(event, pickable, onPointerOut)}
     >
       <planeGeometry args={[width, height]} />
-      <meshStandardMaterial
+      <meshBasicMaterial
+        color={displayColor}
+        transparent={displayOpacity < 1}
+        opacity={displayOpacity}
+      />
+    </mesh>
+  );
+}
+
+function TexturedPlane({
+  textureUrl,
+  position,
+  rotation = [0, 0, 0],
+  width,
+  height,
+  highlighted = false,
+  previewTextureUrl,
+  pickable = true,
+  onPaint,
+  onPointerOver,
+  onPointerOut,
+  opacity = 1,
+}: {
+  textureUrl: string;
+  position: [number, number, number];
+  rotation?: [number, number, number];
+  width: number;
+  height: number;
+  highlighted?: boolean;
+  previewTextureUrl?: string;
+  pickable?: boolean;
+  onPaint?: () => void;
+  onPointerOver?: () => void;
+  onPointerOut?: () => void;
+  opacity?: number;
+}) {
+  const displayUrl =
+    highlighted && previewTextureUrl ? previewTextureUrl : textureUrl;
+  const [texture, setTexture] = useState(() => getCachedPixelTexture(displayUrl) ?? null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFailed(false);
+
+    const cached = getCachedPixelTexture(displayUrl);
+    if (cached) {
+      setTexture(cached);
+      return;
+    }
+
+    setTexture(null);
+    void loadPixelTexture(displayUrl)
+      .then((loaded) => {
+        if (!cancelled) setTexture(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [displayUrl]);
+
+  const displayOpacity =
+    highlighted && previewTextureUrl ? 0.75 : opacity;
+
+  if (failed || !texture) {
+    return (
+      <ColoredPlane
+        color="#888888"
+        position={position}
+        rotation={rotation}
+        width={width}
+        height={height}
+        highlighted={highlighted}
+        pickable={pickable}
+        onPaint={onPaint}
+        onPointerOver={onPointerOver}
+        onPointerOut={onPointerOut}
+        opacity={displayOpacity}
+      />
+    );
+  }
+
+  return (
+    <mesh
+      position={position}
+      rotation={rotation}
+      raycast={pickable ? undefined : () => null}
+      onPointerDown={(event) => paintOnPointerDown(event, pickable, onPaint)}
+      onPointerOver={(event) => handlePointer(event, pickable, onPointerOver)}
+      onPointerOut={(event) => handlePointer(event, pickable, onPointerOut)}
+    >
+      <planeGeometry args={[width, height]} />
+      <meshBasicMaterial
         map={texture}
-        color={color}
-        transparent={opacity < 1}
-        opacity={opacity}
+        color={highlighted ? "#d9ecff" : "#ffffff"}
+        transparent={displayOpacity < 1}
+        opacity={displayOpacity}
       />
     </mesh>
   );
@@ -78,23 +197,32 @@ export function Tile({
   rotation = [0, 0, 0],
   pixelWidth = 64,
   pixelHeight = 64,
-  onClick,
+  planeWidth,
+  planeHeight,
+  highlighted = false,
+  previewTextureUrl,
+  pickable = true,
+  onPaint,
   onPointerOver,
   onPointerOut,
   opacity = 1,
 }: TileProps) {
-  const { width, height } = planeSizeFromPixels(pixelWidth, pixelHeight);
+  const pixelSize = planeSizeFromPixels(pixelWidth, pixelHeight);
+  const width = planeWidth ?? pixelSize.width;
+  const height = planeHeight ?? pixelSize.height;
 
   if (textureUrl) {
     return (
-      <TexturedTile
+      <TexturedPlane
         textureUrl={textureUrl}
-        color={color}
         position={position}
         rotation={rotation}
-        pixelWidth={pixelWidth}
-        pixelHeight={pixelHeight}
-        onClick={onClick}
+        width={width}
+        height={height}
+        highlighted={highlighted}
+        previewTextureUrl={previewTextureUrl}
+        pickable={pickable}
+        onPaint={onPaint}
         onPointerOver={onPointerOver}
         onPointerOut={onPointerOut}
         opacity={opacity}
@@ -102,29 +230,37 @@ export function Tile({
     );
   }
 
+  if (highlighted && previewTextureUrl) {
+    return (
+      <TexturedPlane
+        textureUrl={previewTextureUrl}
+        position={position}
+        rotation={rotation}
+        width={width}
+        height={height}
+        highlighted
+        pickable={pickable}
+        onPaint={onPaint}
+        onPointerOver={onPointerOver}
+        onPointerOut={onPointerOut}
+        opacity={0.75}
+      />
+    );
+  }
+
   return (
-    <mesh
+    <ColoredPlane
+      color={color}
       position={position}
       rotation={rotation}
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick?.();
-      }}
-      onPointerOver={(event) => {
-        event.stopPropagation();
-        onPointerOver?.();
-      }}
-      onPointerOut={(event) => {
-        event.stopPropagation();
-        onPointerOut?.();
-      }}
-    >
-      <planeGeometry args={[width, height]} />
-      <meshStandardMaterial
-        color={color}
-        transparent={opacity < 1}
-        opacity={opacity}
-      />
-    </mesh>
+      width={width}
+      height={height}
+      highlighted={highlighted}
+      pickable={pickable}
+      onPaint={onPaint}
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
+      opacity={opacity}
+    />
   );
 }

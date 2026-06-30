@@ -52,7 +52,7 @@ service cloud.firestore {
     function isValidTilesetItem(data) {
       return hasOnlyAllowedFields(['name', 'textureUrl', 'width', 'depth', 'pixelWidth', 'pixelHeight']) &&
         data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-        data.textureUrl is string && data.textureUrl.size() <= 2048 &&
+        data.textureUrl is string && data.textureUrl.size() <= 4096 &&
         data.width is int && data.width >= 1 && data.width <= 4 &&
         data.depth is int && data.depth >= 1 && data.depth <= 4 &&
         data.pixelWidth is int && data.pixelWidth >= 1 && data.pixelWidth <= 256 &&
@@ -76,31 +76,31 @@ service cloud.firestore {
     match /floors/{tileId} {
       allow read: if isAuthenticated();
       allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if false;
+      allow delete: if isAuthenticated();
     }
 
     match /walls/{tileId} {
       allow read: if isAuthenticated();
       allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if false;
+      allow delete: if isAuthenticated();
     }
 
     match /doors/{tileId} {
       allow read: if isAuthenticated();
       allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if false;
+      allow delete: if isAuthenticated();
     }
 
     match /windows/{tileId} {
       allow read: if isAuthenticated();
       allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if false;
+      allow delete: if isAuthenticated();
     }
 
     match /furniture/{tileId} {
       allow read: if isAuthenticated();
       allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
-      allow delete: if false;
+      allow delete: if isAuthenticated();
     }
   }
 }

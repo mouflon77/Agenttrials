@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
-        hostname: "abs.twimg.com",
+        hostname: "firebasestorage.googleapis.com",
       },
     ],
   },

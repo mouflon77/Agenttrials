@@ -3,38 +3,81 @@
 import { useMemo } from "react";
 import { getTile, type TilesetRegistry } from "@/lib/tileset-collections";
 import { Tile } from "@/components/room/Tile";
-import type { FurnitureItem } from "@/types/room";
+import { DEFAULT_FURNITURE_COLOR, type FurnitureItem } from "@/types/room";
+
+const FURNITURE_FLOOR_Y = 0.015;
+const FURNITURE_LIFT = 0.002;
+const FURNITURE_BOX_HEIGHT = 0.3;
 
 interface FurnitureProps {
   item: FurnitureItem;
   tilesets: TilesetRegistry;
+  pickable?: boolean;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
 }
 
-export function FurnitureMesh({ item, tilesets }: FurnitureProps) {
+export function FurnitureMesh({
+  item,
+  tilesets,
+  pickable = true,
+  selected = false,
+  onSelect,
+}: FurnitureProps) {
   const def = getTile(tilesets, "furniture", item.type);
   const width = def?.width ?? 1;
   const depth = def?.depth ?? 1;
   const textureUrl = def?.textureUrl || undefined;
+  const color = item.color ?? DEFAULT_FURNITURE_COLOR;
 
   const rotationY = useMemo(() => (item.rotation * Math.PI) / 180, [item.rotation]);
 
   const centerX = item.x + width / 2;
   const centerZ = item.z + depth / 2;
 
+  const handleSelect = () => onSelect?.(item.id);
+
   return (
-    <group position={[centerX, 0.02, centerZ]} rotation={[0, rotationY, 0]}>
-      <Tile
-        textureUrl={textureUrl}
-        color="#ffffff"
-        pixelWidth={def?.pixelWidth ?? 64}
-        pixelHeight={def?.pixelHeight ?? 64}
-        position={[0, 0.5, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-      />
-      <mesh position={[0, width * 0.35, 0]} rotation={[0, 0, 0]}>
-        <boxGeometry args={[width * 0.9, 0.7, depth * 0.9]} />
-        <meshStandardMaterial color="#6b5b4f" transparent opacity={textureUrl ? 0 : 1} />
+    <group position={[centerX, FURNITURE_FLOOR_Y, centerZ]} rotation={[0, rotationY, 0]}>
+      {textureUrl && (
+        <Tile
+          textureUrl={textureUrl}
+          color="#ffffff"
+          pixelWidth={def?.pixelWidth ?? 64}
+          pixelHeight={def?.pixelHeight ?? 64}
+          planeWidth={width}
+          planeHeight={depth}
+          position={[0, FURNITURE_LIFT, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          pickable={pickable}
+          onPaint={handleSelect}
+        />
+      )}
+      <mesh
+        position={[0, FURNITURE_BOX_HEIGHT / 2, 0]}
+        raycast={pickable ? undefined : () => null}
+        onPointerDown={(event) => {
+          if (!pickable || event.button !== 0) return;
+          event.stopPropagation();
+          handleSelect();
+        }}
+      >
+        <boxGeometry args={[width * 0.92, FURNITURE_BOX_HEIGHT, depth * 0.92]} />
+        <meshStandardMaterial
+          color={color}
+          transparent={Boolean(textureUrl)}
+          opacity={textureUrl ? 0.35 : 1}
+          emissive={selected ? "#4488ff" : "#000000"}
+          emissiveIntensity={selected ? 0.45 : 0}
+          flatShading
+        />
       </mesh>
+      {selected && (
+        <mesh position={[0, FURNITURE_LIFT + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[width * 1.04, depth * 1.04]} />
+          <meshBasicMaterial color="#60a5fa" transparent opacity={0.35} />
+        </mesh>
+      )}
     </group>
   );
 }
@@ -46,6 +89,7 @@ interface FurnitureGhostProps {
   rotation: number;
   tilesets: TilesetRegistry;
   valid: boolean;
+  color?: string;
 }
 
 export function FurnitureGhost({
@@ -55,20 +99,44 @@ export function FurnitureGhost({
   rotation,
   tilesets,
   valid,
+  color = DEFAULT_FURNITURE_COLOR,
 }: FurnitureGhostProps) {
   const def = getTile(tilesets, "furniture", type);
   const width = def?.width ?? 1;
   const depth = def?.depth ?? 1;
+  const textureUrl = def?.textureUrl || undefined;
   const rotationY = (rotation * Math.PI) / 180;
   const centerX = x + width / 2;
   const centerZ = z + depth / 2;
-  const color = valid ? "#4ade80" : "#f87171";
+  const tint = valid ? "#4ade80" : "#f87171";
 
   return (
-    <group position={[centerX, 0.03, centerZ]} rotation={[0, rotationY, 0]}>
-      <mesh position={[0, 0.15, 0]}>
-        <boxGeometry args={[width * 0.95, 0.3, depth * 0.95]} />
-        <meshStandardMaterial color={color} transparent opacity={0.45} />
+    <group position={[centerX, FURNITURE_FLOOR_Y, centerZ]} rotation={[0, rotationY, 0]}>
+      {textureUrl && (
+        <Tile
+          textureUrl={textureUrl}
+          color="#ffffff"
+          pixelWidth={def?.pixelWidth ?? 64}
+          pixelHeight={def?.pixelHeight ?? 64}
+          planeWidth={width}
+          planeHeight={depth}
+          position={[0, FURNITURE_LIFT, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          pickable={false}
+          opacity={0.55}
+        />
+      )}
+      <mesh position={[0, FURNITURE_BOX_HEIGHT / 2, 0]} raycast={() => null}>
+        <boxGeometry args={[width * 0.92, FURNITURE_BOX_HEIGHT, depth * 0.92]} />
+        <meshStandardMaterial
+          color={color}
+          transparent
+          opacity={textureUrl ? 0.25 : 0.45}
+        />
+      </mesh>
+      <mesh position={[0, FURNITURE_LIFT + 0.002, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[width * 1.02, depth * 1.02]} />
+        <meshBasicMaterial color={tint} transparent opacity={0.4} />
       </mesh>
     </group>
   );

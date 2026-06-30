@@ -18,7 +18,10 @@ export interface FurnitureItem {
   x: number;
   z: number;
   rotation: number;
+  color?: string;
 }
+
+export const DEFAULT_FURNITURE_COLOR = "#6b5b4f";
 
 export interface RoomDocument {
   floorColor: string;

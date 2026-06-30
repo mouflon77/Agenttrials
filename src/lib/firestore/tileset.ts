@@ -1,16 +1,20 @@
 import {
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   setDoc,
+  updateDoc,
   type Unsubscribe,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase";
 import {
   TILESET_CATEGORIES,
   createEmptyTilesetRegistry,
   getTilesetCollection,
+  isProtectedTileId,
   type TileCategory,
   type TilesetRegistry,
 } from "@/lib/tileset-collections";
@@ -26,8 +30,16 @@ export function subscribeToTilesets(
   onError?: (error: Error) => void,
 ): Unsubscribe {
   const registry = createEmptyTilesetRegistry();
-  const pending = new Set(TILESET_CATEGORIES);
-  let reported = false;
+
+  const emit = () => {
+    onData({
+      floor: { ...registry.floor },
+      wall: { ...registry.wall },
+      door: { ...registry.door },
+      window: { ...registry.window },
+      furniture: { ...registry.furniture },
+    });
+  };
 
   const unsubscribes = TILESET_CATEGORIES.map((category) => {
     const col = collection(getFirebaseDb(), getTilesetCollection(category));
@@ -39,16 +51,7 @@ export function subscribeToTilesets(
           tiles[d.id] = d.data() as TilesetDocument;
         });
         registry[category] = tiles;
-
-        if (!reported) {
-          pending.delete(category);
-          if (pending.size === 0) {
-            reported = true;
-            onData({ ...registry });
-          }
-        } else {
-          onData({ ...registry });
-        }
+        emit();
       },
       (error) => onError?.(error),
     );
@@ -69,7 +72,7 @@ export interface UploadTileOptions {
 
 export async function uploadTileTexture(
   options: UploadTileOptions,
-): Promise<string> {
+): Promise<{ id: string; tile: TilesetDocument }> {
   const {
     file,
     name,
@@ -99,7 +102,9 @@ export async function uploadTileTexture(
   const id = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
   const collectionName = getTilesetCollection(category);
   const storageRef = ref(getFirebaseStorage(), `tilesets/${collectionName}/${id}`);
-  await uploadBytes(storageRef, file);
+  await uploadBytes(storageRef, file, {
+    contentType: file.type || "image/png",
+  });
   const textureUrl = await getDownloadURL(storageRef);
 
   const metadata: TilesetDocument = {
@@ -112,7 +117,61 @@ export async function uploadTileTexture(
   };
 
   await setDoc(doc(getFirebaseDb(), collectionName, id), metadata);
-  return id;
+  return { id, tile: metadata };
+}
+
+export async function renameTile(
+  category: TileCategory,
+  tileId: string,
+  name: string,
+): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error("Name cannot be empty.");
+  }
+  if (trimmed.length > 100) {
+    throw new Error("Name must be 100 characters or less.");
+  }
+
+  const collectionName = getTilesetCollection(category);
+  const ref = doc(getFirebaseDb(), collectionName, tileId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    throw new Error("Tile not found.");
+  }
+
+  await updateDoc(ref, { name: trimmed });
+}
+
+export async function deleteTile(
+  category: TileCategory,
+  tileId: string,
+): Promise<void> {
+  if (isProtectedTileId(tileId)) {
+    throw new Error("Built-in tiles cannot be deleted.");
+  }
+
+  const collectionName = getTilesetCollection(category);
+  const docRef = doc(getFirebaseDb(), collectionName, tileId);
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) {
+    throw new Error("Tile not found.");
+  }
+
+  const data = snap.data() as TilesetDocument;
+  if (data.textureUrl) {
+    try {
+      const storageRef = ref(
+        getFirebaseStorage(),
+        `tilesets/${collectionName}/${tileId}`,
+      );
+      await deleteObject(storageRef);
+    } catch {
+      // Texture may already be missing from storage.
+    }
+  }
+
+  await deleteDoc(docRef);
 }
 
 const DEFAULT_PIXEL = 64;
