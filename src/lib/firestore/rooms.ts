@@ -1,0 +1,95 @@
+import {
+  doc,
+  onSnapshot,
+  setDoc,
+  updateDoc,
+  type Unsubscribe,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import {
+  createDefaultRoom,
+  normalizeRoom,
+  type FurnitureItem,
+  type RoomDocument,
+} from "@/types/room";
+
+export function subscribeToRoom(
+  roomId: string,
+  onData: (room: RoomDocument | null) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const ref = doc(db, "rooms", roomId);
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onData(null);
+        return;
+      }
+      onData(normalizeRoom(snapshot.data() as Partial<RoomDocument>));
+    },
+    (error) => onError?.(error),
+  );
+}
+
+export async function ensureRoom(roomId: string): Promise<void> {
+  const ref = doc(db, "rooms", roomId);
+  await setDoc(ref, createDefaultRoom(), { merge: true });
+}
+
+export async function updateFloorTile(
+  roomId: string,
+  index: string,
+  tileId: string,
+): Promise<void> {
+  const ref = doc(db, "rooms", roomId);
+  await updateDoc(ref, { [`floorGrid.${index}`]: tileId });
+}
+
+export async function updateWallTile(
+  roomId: string,
+  key: string,
+  tileId: string,
+): Promise<void> {
+  const ref = doc(db, "rooms", roomId);
+  await updateDoc(ref, { [`wallGrid.${key}`]: tileId });
+}
+
+export async function updateDoorTile(
+  roomId: string,
+  key: string,
+  tileId: string,
+): Promise<void> {
+  const ref = doc(db, "rooms", roomId);
+  await updateDoc(ref, { [`doorGrid.${key}`]: tileId });
+}
+
+export async function updateWindowTile(
+  roomId: string,
+  key: string,
+  tileId: string,
+): Promise<void> {
+  const ref = doc(db, "rooms", roomId);
+  await updateDoc(ref, { [`windowGrid.${key}`]: tileId });
+}
+
+export async function updateRoomColors(
+  roomId: string,
+  colors: Partial<Pick<RoomDocument, "floorColor" | "wallColor">>,
+): Promise<void> {
+  const ref = doc(db, "rooms", roomId);
+  await updateDoc(ref, colors);
+}
+
+export async function addFurnitureItem(
+  roomId: string,
+  item: FurnitureItem,
+): Promise<void> {
+  const ref = doc(db, "rooms", roomId);
+  const { getDoc } = await import("firebase/firestore");
+  const snap = await getDoc(ref);
+  const current = snap.exists()
+    ? normalizeRoom(snap.data() as Partial<RoomDocument>).furniture
+    : [];
+  await updateDoc(ref, { furniture: [...current, item] });
+}

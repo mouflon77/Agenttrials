@@ -1,0 +1,106 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function validOptionalString(field, maxLen) {
+      return !(field in request.resource.data) ||
+        (request.resource.data[field] is string &&
+         request.resource.data[field].size() <= maxLen);
+    }
+
+    function isValidUrl(url) {
+      return url is string && url.matches("^https://.*");
+    }
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'authProvider', 'marketingEmail', 'termsAcceptedAt', 'createdAt', 'updatedAt']) &&
+        data.uid is string &&
+        data.uid.size() > 0 &&
+        data.uid.size() <= 128 &&
+        validOptionalString('email', 320) &&
+        validOptionalString('displayName', 100) &&
+        validOptionalString('marketingEmail', 320) &&
+        (!(('photoURL' in data)) || isValidUrl(data.photoURL)) &&
+        data.authProvider is string &&
+        data.authProvider.size() > 0 &&
+        data.authProvider.size() <= 64 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function uidUnchanged() {
+      return request.resource.data.uid == request.auth.uid;
+    }
+
+    function createdAtUnchanged() {
+      return request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function isValidTilesetItem(data) {
+      return hasOnlyAllowedFields(['name', 'textureUrl', 'width', 'depth', 'pixelWidth', 'pixelHeight']) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.textureUrl is string && data.textureUrl.size() <= 2048 &&
+        data.width is int && data.width >= 1 && data.width <= 4 &&
+        data.depth is int && data.depth >= 1 && data.depth <= 4 &&
+        data.pixelWidth is int && data.pixelWidth >= 1 && data.pixelWidth <= 256 &&
+        data.pixelHeight is int && data.pixelHeight >= 1 && data.pixelHeight <= 256;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && uidUnchanged() && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && uidUnchanged() && createdAtUnchanged() && isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /rooms/{roomId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // Per-category tileset collections (add new match blocks when extending categories)
+    match /floors/{tileId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /walls/{tileId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /doors/{tileId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /windows/{tileId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /furniture/{tileId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidTilesetItem(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

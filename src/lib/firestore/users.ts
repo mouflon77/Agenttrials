@@ -1,0 +1,66 @@
+import {
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  type Timestamp,
+} from "firebase/firestore";
+import type { User } from "firebase/auth";
+import { db } from "@/lib/firebase";
+import type { UserProfile } from "@/types/user";
+
+function getAuthProvider(user: User): string {
+  return user.providerData[0]?.providerId ?? "twitter.com";
+}
+
+export async function ensureUserProfile(user: User): Promise<UserProfile> {
+  const ref = doc(db, "users", user.uid);
+  const snapshot = await getDoc(ref);
+
+  if (snapshot.exists()) {
+    return snapshot.data() as UserProfile;
+  }
+
+  const profile = {
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    authProvider: getAuthProvider(user),
+    marketingEmail: null,
+    termsAcceptedAt: null,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(ref, profile);
+
+  const created = await getDoc(ref);
+  return created.data() as UserProfile;
+}
+
+export async function saveMarketingEmail(
+  uid: string,
+  email: string,
+): Promise<UserProfile> {
+  const ref = doc(db, "users", uid);
+  await updateDoc(ref, {
+    marketingEmail: email,
+    termsAcceptedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  const updated = await getDoc(ref);
+  return updated.data() as UserProfile;
+}
+
+export async function getUserProfile(uid: string): Promise<UserProfile | null> {
+  const snapshot = await getDoc(doc(db, "users", uid));
+  if (!snapshot.exists()) return null;
+  return snapshot.data() as UserProfile;
+}
+
+export function formatTimestamp(timestamp: Timestamp | null | undefined): string {
+  if (!timestamp) return "—";
+  return timestamp.toDate().toLocaleString();
+}
