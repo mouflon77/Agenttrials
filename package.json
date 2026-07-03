@@ -4,14 +4,22 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
+    "@google-cloud/secret-manager": "^6.2.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
+    "@solana/web3.js": "^1.98.4",
+    "@turnkey/crypto": "^2.10.0",
+    "@turnkey/sdk-browser": "^6.1.1",
+    "@turnkey/sdk-server": "^6.1.1",
+    "@turnkey/solana": "^1.1.31",
+    "agentwallets": "file:../AgentWallets-temp",
     "firebase": "^12.15.0",
+    "firebase-admin": "^13.10.0",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",

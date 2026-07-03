@@ -39,8 +39,19 @@ service cloud.firestore {
       );
     }
 
+    function isValidAvatarConfig(cfg) {
+      return cfg == null || (
+        cfg is map &&
+        cfg.keys().hasOnly(['bodyColor', 'headgearId', 'spriteSheetUrl']) &&
+        cfg.bodyColor is string && cfg.bodyColor.size() > 0 && cfg.bodyColor.size() <= 16 &&
+        cfg.headgearId is string && cfg.headgearId.size() > 0 && cfg.headgearId.size() <= 64 &&
+        (!('spriteSheetUrl' in cfg) || cfg.spriteSheetUrl == null ||
+          (cfg.spriteSheetUrl is string && cfg.spriteSheetUrl.size() <= 512))
+      );
+    }
+
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'twitterHandle', 'authProvider', 'marketingEmail', 'termsAcceptedAt', 'createdAt', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'twitterHandle', 'authProvider', 'marketingEmail', 'termsAcceptedAt', 'avatarConfig', 'createdAt', 'updatedAt']) &&
         data.uid is string &&
         data.uid.size() > 0 &&
         data.uid.size() <= 128 &&
@@ -53,7 +64,8 @@ service cloud.firestore {
         data.authProvider.size() > 0 &&
         data.authProvider.size() <= 64 &&
         data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+        data.updatedAt is timestamp &&
+        (!('avatarConfig' in data) || isValidAvatarConfig(data.avatarConfig));
     }
 
     function uidUnchanged() {
@@ -82,6 +94,18 @@ service cloud.firestore {
     match /config/app {
       allow read: if isAuthenticated();
       allow write: if false;
+    }
+
+    function isValidHeadgearItem(data) {
+      return hasOnlyAllowedFields(['name', 'textureUrl']) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.textureUrl is string && data.textureUrl.size() <= 4096;
+    }
+
+    match /headgear/{headgearId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidHeadgearItem(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /users/{userId} {
@@ -132,6 +156,27 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create, update: if isAdmin() && isValidTilesetItem(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    function isValidAgentWallet(data) {
+      return hasOnlyAllowedFields([
+        'id', 'displayName', 'subOrganizationId', 'solanaAddress',
+        'walletSecretId', 'status', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+        data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 100 &&
+        data.subOrganizationId is string && data.subOrganizationId.size() > 0 &&
+        data.solanaAddress is string && data.solanaAddress.size() > 0 && data.solanaAddress.size() <= 64 &&
+        data.walletSecretId is string && data.walletSecretId.size() > 0 &&
+        data.status in ['provisioned', 'linked'] &&
+        data.createdBy is string &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /agentWallets/{walletId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
     }
   }
 }

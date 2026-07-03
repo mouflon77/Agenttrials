@@ -10,6 +10,8 @@ import {
   getWallTransform,
   wallKey,
 } from "@/types/room";
+import type { AvatarConfig } from "@/types/avatar";
+import type { WorldPosition } from "@/lib/movement";
 import type { EditorMode, NpcItem, PlayerPosition, PortalItem, RoomDocument, WallSide } from "@/types/room";
 import { Tile } from "@/components/room/Tile";
 import { FloorLayer, getUniformFloor } from "@/components/room/FloorLayer";
@@ -42,7 +44,13 @@ interface RoomProps {
   onWallHoverEnd?: () => void;
   onFurnitureSelect?: (id: string) => void;
   playMode?: boolean;
-  playerPosition?: PlayerPosition | null;
+  playerGridPosition?: PlayerPosition | null;
+  playerVisualPosition?: WorldPosition | null;
+  playerAvatarConfig?: AvatarConfig | null;
+  playerPhotoURL?: string | null;
+  playerHeadgearTextureUrl?: string;
+  playerIsMoving?: boolean;
+  playerFacingRow?: number;
   unlockedPortalIds?: Set<string>;
   onPortalEnter?: (portalId: string) => void;
   onFloorStep?: (x: number, z: number) => void;
@@ -107,7 +115,13 @@ export function Room({
   onWallHoverEnd,
   onFurnitureSelect,
   playMode = false,
-  playerPosition = null,
+  playerGridPosition = null,
+  playerVisualPosition = null,
+  playerAvatarConfig = null,
+  playerPhotoURL = null,
+  playerHeadgearTextureUrl,
+  playerIsMoving = false,
+  playerFacingRow = 2,
   unlockedPortalIds,
   onPortalEnter,
   onFloorStep,
@@ -360,13 +374,23 @@ export function Room({
             selected={portalPickable && selectedPortalId === portal.id}
             onSelect={onPortalSelect}
             playerOnTile={
-              playerPosition?.x === portal.x && playerPosition?.z === portal.z
+              playerGridPosition?.x === portal.x &&
+              playerGridPosition?.z === portal.z
             }
             onEnter={onPortalEnter}
           />
         ))}
 
-        {playMode && playerPosition && <PlayerAvatar position={playerPosition} />}
+        {playMode && playerVisualPosition && playerAvatarConfig && (
+          <PlayerAvatar
+            visualPosition={playerVisualPosition}
+            avatarConfig={playerAvatarConfig}
+            photoURL={playerPhotoURL}
+            headgearTextureUrl={playerHeadgearTextureUrl}
+            isMoving={playerIsMoving}
+            facingRow={playerFacingRow}
+          />
+        )}
 
         {editorMode === "npc" && npcGhostPosition && (
           <StandeeMesh

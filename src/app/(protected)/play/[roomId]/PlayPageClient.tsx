@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { use, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import { LandscapeGate } from "@/components/play/LandscapeGate";
 import { UserProfileBar } from "@/components/UserProfileBar";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useRoom } from "@/hooks/useRoom";
@@ -58,44 +59,48 @@ export default function PlayPageClient({
   }, [loading, room, roomId]);
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-900">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <div>
-          <h1 className="text-sm font-semibold text-zinc-100">
-            Room: {roomId}
-          </h1>
-          <p className="text-xs text-zinc-500">Axonometric play view</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {isAdmin && (
-            <Link
-              href={`/admin/editor?roomId=${roomId}`}
-              className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
-            >
-              Open editor
-            </Link>
-          )}
-          <UserProfileBar />
-        </div>
-      </header>
+    <LandscapeGate>
+      <div className="flex h-screen flex-col bg-zinc-900">
+        <header className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-zinc-100">
+              Room: {roomId}
+            </h1>
+            <p className="hidden text-xs text-zinc-500 sm:block">
+              Axonometric play view
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {isAdmin && (
+              <Link
+                href={`/admin/editor?roomId=${roomId}`}
+                className="hidden rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 sm:inline-block"
+              >
+                Editor
+              </Link>
+            )}
+            <UserProfileBar />
+          </div>
+        </header>
 
-      <div className="relative flex-1">
-        {(loading || tilesetLoading) && <SceneLoader />}
-        {error && (
-          <p className="absolute inset-0 flex items-center justify-center text-red-400">
-            {error}
-          </p>
-        )}
-        {room && !tilesetLoading && (
-          <PlayScene
-            key={`${roomId}-${initialSpawn.x}-${initialSpawn.z}`}
-            room={room}
-            tilesets={tilesets}
-            roomId={roomId}
-            initialSpawn={initialSpawn}
-          />
-        )}
+        <div className="relative min-h-0 flex-1">
+          {(loading || tilesetLoading) && <SceneLoader />}
+          {error && (
+            <p className="absolute inset-0 flex items-center justify-center text-red-400">
+              {error}
+            </p>
+          )}
+          {room && !tilesetLoading && (
+            <PlayScene
+              key={`${roomId}-${initialSpawn.x}-${initialSpawn.z}`}
+              room={room}
+              tilesets={tilesets}
+              roomId={roomId}
+              initialSpawn={initialSpawn}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </LandscapeGate>
   );
 }

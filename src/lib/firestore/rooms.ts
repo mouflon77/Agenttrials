@@ -197,7 +197,18 @@ export async function addNpcItem(roomId: string, item: NpcItem): Promise<void> {
 export async function updateNpcItem(
   roomId: string,
   itemId: string,
-  patch: Partial<Pick<NpcItem, "x" | "z" | "standeeType" | "name" | "prompt">>,
+  patch: Partial<
+    Pick<
+      NpcItem,
+      | "x"
+      | "z"
+      | "standeeType"
+      | "name"
+      | "prompt"
+      | "walletAddress"
+      | "bribeAmountSol"
+    >
+  >,
 ): Promise<void> {
   const room = await readRoom(roomId);
   if (!room) return;

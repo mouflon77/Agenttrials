@@ -9,6 +9,8 @@ import {
 import type { User } from "firebase/auth";
 import { getFirebaseDb } from "@/lib/firebase";
 import { extractTwitterHandle } from "@/lib/twitter";
+import { DEFAULT_AVATAR_CONFIG } from "@/types/avatar";
+import type { AvatarConfig } from "@/types/avatar";
 import type { UserProfile } from "@/types/user";
 
 function getAuthProvider(user: User): string {
@@ -41,6 +43,7 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
     authProvider: getAuthProvider(user),
     marketingEmail: null,
     termsAcceptedAt: null,
+    avatarConfig: DEFAULT_AVATAR_CONFIG,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -69,6 +72,19 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   const snapshot = await getDoc(doc(getFirebaseDb(), "users", uid));
   if (!snapshot.exists()) return null;
   return snapshot.data() as UserProfile;
+}
+
+export async function saveAvatarConfig(
+  uid: string,
+  avatarConfig: AvatarConfig,
+): Promise<UserProfile> {
+  const ref = doc(getFirebaseDb(), "users", uid);
+  await updateDoc(ref, {
+    avatarConfig,
+    updatedAt: serverTimestamp(),
+  });
+  const updated = await getDoc(ref);
+  return updated.data() as UserProfile;
 }
 
 export function formatTimestamp(timestamp: Timestamp | null | undefined): string {

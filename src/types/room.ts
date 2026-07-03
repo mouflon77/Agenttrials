@@ -35,6 +35,13 @@ export interface NpcItem {
   name: string;
   /** System prompt / negotiation context for the AI gatekeeper */
   prompt: string;
+  /**
+   * Agent wallet public key (from AgentWallets `npm run setup`).
+   * Receives bribes during negotiation.
+   */
+  walletAddress?: string;
+  /** Minimum SOL bribe to unlock the portal (devnet/mainnet per SOLANA_RPC_URL). */
+  bribeAmountSol?: number;
 }
 
 export interface PortalItem {
@@ -172,14 +179,32 @@ export function npcItemId(item: NpcItem, index: number): string {
   return `npc-legacy-${index}-${item.x}-${item.z}`;
 }
 
+export function npcAcceptsBribes(npc: NpcItem): boolean {
+  return Boolean(
+    npc.walletAddress?.trim() &&
+      typeof npc.bribeAmountSol === "number" &&
+      npc.bribeAmountSol > 0,
+  );
+}
+
 export function normalizeNpcs(items: NpcItem[]): NpcItem[] {
-  return items.map((item, index) => ({
-    ...item,
-    id: npcItemId(item, index),
-    name: item.name ?? "NPC",
-    prompt: item.prompt ?? "",
-    standeeType: item.standeeType ?? "default_standee",
-  }));
+  return items.map((item, index) => {
+    const walletAddress = item.walletAddress?.trim() || undefined;
+    const bribeAmountSol =
+      typeof item.bribeAmountSol === "number" && item.bribeAmountSol > 0
+        ? item.bribeAmountSol
+        : undefined;
+
+    return {
+      ...item,
+      id: npcItemId(item, index),
+      name: item.name ?? "NPC",
+      prompt: item.prompt ?? "",
+      standeeType: item.standeeType ?? "default_standee",
+      walletAddress,
+      bribeAmountSol,
+    };
+  });
 }
 
 export function portalItemId(item: PortalItem, index: number): string {

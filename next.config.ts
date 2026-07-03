@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: [
+    "agentwallets",
+    "@google-cloud/secret-manager",
+    "firebase-admin",
+  ],
   images: {
     remotePatterns: [
       {

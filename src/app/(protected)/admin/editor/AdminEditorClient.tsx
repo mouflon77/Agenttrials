@@ -48,6 +48,7 @@ import {
   paletteCategoryForMode,
 } from "@/lib/editor-modes";
 import { NpcPortalSidebar } from "@/components/admin/NpcPortalSidebar";
+import { useAgentWallets } from "@/hooks/useAgentWallets";
 import {
   DEFAULT_FURNITURE_COLOR,
   GRID_SIZE,
@@ -135,6 +136,11 @@ export default function AdminEditorClient() {
   const [npcPrompt, setNpcPrompt] = useState(
     "Only unlock the portal for players who are polite and make a good case.",
   );
+  const [npcWalletAddress, setNpcWalletAddress] = useState("");
+  const [npcBribeAmountSol, setNpcBribeAmountSol] = useState("");
+  const [selectedAgentWalletId, setSelectedAgentWalletId] = useState("");
+  const { wallets: agentWallets, loading: agentWalletsLoading } =
+    useAgentWallets();
   const [portalTarget, setPortalTarget] = useState("room_02");
   const [portalSpawnX, setPortalSpawnX] = useState(6);
   const [portalSpawnZ, setPortalSpawnZ] = useState(6);
@@ -399,6 +405,12 @@ export default function AdminEditorClient() {
           z,
           name: npcName.trim() || "NPC",
           prompt: npcPrompt.trim(),
+          ...(npcWalletAddress.trim()
+            ? { walletAddress: npcWalletAddress.trim() }
+            : {}),
+          ...(Number(npcBribeAmountSol) > 0
+            ? { bribeAmountSol: Number(npcBribeAmountSol) }
+            : {}),
         }),
       );
       setNpcGhostPosition(null);
@@ -494,6 +506,14 @@ export default function AdminEditorClient() {
     if (npc) {
       setNpcName(npc.name);
       setNpcPrompt(npc.prompt);
+      setNpcWalletAddress(npc.walletAddress ?? "");
+      setNpcBribeAmountSol(
+        npc.bribeAmountSol != null ? String(npc.bribeAmountSol) : "",
+      );
+      const matched = agentWallets.find(
+        (w) => w.solanaAddress === npc.walletAddress,
+      );
+      setSelectedAgentWalletId(matched?.id ?? "");
       setSelectedByMode((prev) => ({ ...prev, standee: npc.standeeType }));
     }
   };
@@ -509,13 +529,25 @@ export default function AdminEditorClient() {
     }
   };
 
+  const handleSelectAgentWallet = (walletId: string) => {
+    setSelectedAgentWalletId(walletId);
+    const wallet = agentWallets.find((w) => w.id === walletId);
+    setNpcWalletAddress(wallet?.solanaAddress ?? "");
+  };
+
   const handleSaveNpcFields = () => {
     if (!selectedNpcId) return;
+    const bribeParsed = Number(npcBribeAmountSol);
     void runPaint(() =>
       updateNpcItem(roomId, selectedNpcId, {
         name: npcName.trim() || "NPC",
         prompt: npcPrompt.trim(),
         standeeType: selectedTileId,
+        walletAddress: npcWalletAddress.trim() || undefined,
+        bribeAmountSol:
+          Number.isFinite(bribeParsed) && bribeParsed > 0
+            ? bribeParsed
+            : undefined,
       }),
     );
   };
@@ -825,6 +857,8 @@ export default function AdminEditorClient() {
             painting={painting}
             npcName={npcName}
             npcPrompt={npcPrompt}
+            npcWalletAddress={npcWalletAddress}
+            npcBribeAmountSol={npcBribeAmountSol}
             portalTarget={portalTarget}
             portalSpawnX={portalSpawnX}
             portalSpawnZ={portalSpawnZ}
@@ -832,11 +866,16 @@ export default function AdminEditorClient() {
             selectedPortalId={selectedPortalId}
             npcs={room.npcs}
             portals={room.portals}
+            agentWallets={agentWallets}
+            agentWalletsLoading={agentWalletsLoading}
+            selectedAgentWalletId={selectedAgentWalletId}
             standeePalette={sortedTileEntries(tilesets.standee)}
             selectedStandeeId={selectedTileId}
             onSelectStandee={(id) => selectItem(id)}
             onNpcNameChange={setNpcName}
             onNpcPromptChange={setNpcPrompt}
+            onNpcBribeAmountSolChange={setNpcBribeAmountSol}
+            onSelectAgentWallet={handleSelectAgentWallet}
             onPortalTargetChange={setPortalTarget}
             onPortalSpawnXChange={setPortalSpawnX}
             onPortalSpawnZChange={setPortalSpawnZ}

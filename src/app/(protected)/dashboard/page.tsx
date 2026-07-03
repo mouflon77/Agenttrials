@@ -85,13 +85,27 @@ export default function DashboardPage() {
           >
             Play room_01
           </Link>
+          <Link
+            href="/profile"
+            className="rounded-xl border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Customize avatar
+          </Link>
           {isAdmin && (
-            <Link
-              href="/admin/editor?roomId=room_01"
-              className="rounded-xl border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              Open editor
-            </Link>
+            <>
+              <Link
+                href="/admin/wallets"
+                className="rounded-xl border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Agent wallets
+              </Link>
+              <Link
+                href="/admin/editor?roomId=room_01"
+                className="rounded-xl border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Open editor
+              </Link>
+            </>
           )}
         </div>
 

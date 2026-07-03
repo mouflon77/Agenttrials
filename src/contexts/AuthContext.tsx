@@ -15,7 +15,7 @@ import {
   type User,
 } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
-import { ensureUserProfile, saveMarketingEmail } from "@/lib/firestore/users";
+import { ensureUserProfile, getUserProfile, saveMarketingEmail } from "@/lib/firestore/users";
 import type { UserProfile } from "@/types/user";
 
 interface AuthContextValue {
@@ -24,6 +24,7 @@ interface AuthContextValue {
   loading: boolean;
   signInWithTwitter: () => Promise<void>;
   saveEmailConsent: (email: string) => Promise<void>;
+  refreshProfile: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -70,6 +71,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserProfile(profile);
   };
 
+  const refreshProfile = async () => {
+    if (!user) return;
+    const profile = await getUserProfile(user.uid);
+    if (profile) setUserProfile(profile);
+  };
+
   const logout = async () => {
     await signOut(getFirebaseAuth());
     setUserProfile(null);
@@ -83,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signInWithTwitter,
         saveEmailConsent,
+        refreshProfile,
         logout,
       }}
     >

@@ -1,13 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import type { NpcItem, PortalItem } from "@/types/room";
 import type { TilesetDocument } from "@/types/room";
+import type { AgentWalletDocument } from "@/types/agent-wallet";
+import { formatAgentWalletLabel } from "@/lib/firestore/agent-wallets";
 
 interface NpcPortalSidebarProps {
   mode: "npc" | "portal";
   painting: boolean;
   npcName: string;
   npcPrompt: string;
+  npcWalletAddress: string;
+  npcBribeAmountSol: string;
   portalTarget: string;
   portalSpawnX: number;
   portalSpawnZ: number;
@@ -15,11 +20,16 @@ interface NpcPortalSidebarProps {
   selectedPortalId: string | null;
   npcs: NpcItem[];
   portals: PortalItem[];
+  agentWallets: AgentWalletDocument[];
+  agentWalletsLoading: boolean;
+  selectedAgentWalletId: string;
   standeePalette: Array<[string, TilesetDocument]>;
   selectedStandeeId: string;
   onSelectStandee: (id: string) => void;
   onNpcNameChange: (value: string) => void;
   onNpcPromptChange: (value: string) => void;
+  onNpcBribeAmountSolChange: (value: string) => void;
+  onSelectAgentWallet: (walletId: string) => void;
   onPortalTargetChange: (value: string) => void;
   onPortalSpawnXChange: (value: number) => void;
   onPortalSpawnZChange: (value: number) => void;
@@ -36,6 +46,8 @@ export function NpcPortalSidebar({
   painting,
   npcName,
   npcPrompt,
+  npcWalletAddress,
+  npcBribeAmountSol,
   portalTarget,
   portalSpawnX,
   portalSpawnZ,
@@ -43,11 +55,16 @@ export function NpcPortalSidebar({
   selectedPortalId,
   npcs,
   portals,
+  agentWallets,
+  agentWalletsLoading,
+  selectedAgentWalletId,
   standeePalette,
   selectedStandeeId,
   onSelectStandee,
   onNpcNameChange,
   onNpcPromptChange,
+  onNpcBribeAmountSolChange,
+  onSelectAgentWallet,
   onPortalTargetChange,
   onPortalSpawnXChange,
   onPortalSpawnZChange,
@@ -109,6 +126,45 @@ export function NpcPortalSidebar({
           rows={4}
           className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
           placeholder="What must the player say or do to unlock the portal?"
+        />
+        <p className="text-[10px] text-zinc-500">
+          Optional bribe — create an agent wallet in{" "}
+          <Link href="/admin/wallets" className="text-sky-400 hover:underline">
+            Admin → Agent wallets
+          </Link>
+          , register your phone on the guardian link, then assign it below.
+        </p>
+        <label className="text-xs text-zinc-400">Agent wallet</label>
+        <select
+          value={selectedAgentWalletId}
+          onChange={(e) => onSelectAgentWallet(e.target.value)}
+          className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
+        >
+          <option value="">None (persuasion only)</option>
+          {agentWalletsLoading ? (
+            <option disabled>Loading wallets…</option>
+          ) : (
+            agentWallets.map((wallet) => (
+              <option key={wallet.id} value={wallet.id}>
+                {formatAgentWalletLabel(wallet)}
+              </option>
+            ))
+          )}
+        </select>
+        {npcWalletAddress ? (
+          <p className="font-mono text-[10px] break-all text-zinc-500">
+            {npcWalletAddress}
+          </p>
+        ) : null}
+        <label className="text-xs text-zinc-400">Bribe amount (SOL)</label>
+        <input
+          type="number"
+          min={0}
+          step={0.01}
+          value={npcBribeAmountSol}
+          onChange={(e) => onNpcBribeAmountSolChange(e.target.value)}
+          className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
+          placeholder="0.1"
         />
         {selectedNpcId && (
           <button

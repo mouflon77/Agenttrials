@@ -1,14 +1,22 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Room } from "@/components/room/Room";
 import { RoomCanvas } from "@/components/room/RoomCanvas";
-import { NpcChatOverlay } from "@/components/play/NpcChatOverlay";
+import { NpcChatBar } from "@/components/play/NpcChatBar";
+import { NpcSpeechBubble } from "@/components/play/NpcSpeechBubble";
+import { NpcScreenProjector } from "@/components/play/NpcScreenProjector";
 import { PlayHud } from "@/components/play/PlayHud";
+import { VirtualJoystick } from "@/components/play/VirtualJoystick";
+import { useAuth } from "@/contexts/AuthContext";
+import { useHeadgear } from "@/hooks/useHeadgear";
+import { useNpcChat } from "@/hooks/useNpcChat";
 import { usePlayerMovement } from "@/hooks/usePlayerMovement";
+import { getHeadgearTexture } from "@/lib/firestore/headgear";
 import { getFootprintCells } from "@/components/room/Furniture";
 import { getTile, type TilesetRegistry } from "@/lib/tileset-collections";
+import { canOccupyCell } from "@/lib/movement";
 import {
   GRID_SIZE,
   isWithinTiles,
@@ -16,6 +24,7 @@ import {
   type PortalItem,
   type RoomDocument,
 } from "@/types/room";
+import { DEFAULT_AVATAR_CONFIG, normalizeAvatarConfig } from "@/types/avatar";
 
 interface PlaySceneProps {
   room: RoomDocument;
@@ -63,6 +72,18 @@ function findNearbyPortal(
   return null;
 }
 
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const update = () => setMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return mobile;
+}
+
 export function PlayScene({
   room,
   tilesets,
@@ -70,29 +91,22 @@ export function PlayScene({
   initialSpawn = { x: 6, z: 6 },
 }: PlaySceneProps) {
   const router = useRouter();
+  const { user, userProfile } = useAuth();
+  const { items: headgearItems } = useHeadgear();
+  const isMobile = useIsMobile();
+
   const blockedCells = useMemo(
     () => buildBlockedCells(room, tilesets),
     [room, tilesets],
   );
-  const { position, moveTo } = usePlayerMovement(initialSpawn, blockedCells);
+
+  const [chatNpc, setChatNpc] = useState<NpcItem | null>(null);
+  const inputPaused = Boolean(chatNpc);
+  const speechBubbleRef = useRef<HTMLDivElement>(null);
+
   const [unlockedPortalIds, setUnlockedPortalIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [chatNpc, setChatNpc] = useState<NpcItem | null>(null);
-
-  const nearbyNpc = useMemo(
-    () => findNearbyNpc(position, room.npcs),
-    [position, room.npcs],
-  );
-  const nearbyPortal = useMemo(
-    () => findNearbyPortal(position, room.portals),
-    [position, room.portals],
-  );
-
-  const portalLocked = useMemo(() => {
-    if (!nearbyPortal) return true;
-    return !unlockedPortalIds.has(nearbyPortal.id);
-  }, [nearbyPortal, unlockedPortalIds]);
 
   const handleNpcPassed = useCallback((npcId: string) => {
     setUnlockedPortalIds((prev) => {
@@ -104,6 +118,48 @@ export function PlayScene({
       return next;
     });
   }, [room.portals]);
+
+  const {
+    input: chatInput,
+    setInput: setChatInput,
+    npcLines,
+    userLines,
+    sending: chatSending,
+    send: sendChat,
+    registerBribePayment,
+  } = useNpcChat(roomId, chatNpc, handleNpcPassed);
+
+  const {
+    gridPosition,
+    visualPosition,
+    isMoving,
+    facingRow,
+    moveToGrid,
+    applyJoystick,
+  } = usePlayerMovement(initialSpawn, blockedCells, room, inputPaused);
+
+  const avatarConfig = normalizeAvatarConfig(
+    userProfile?.avatarConfig ?? DEFAULT_AVATAR_CONFIG,
+  );
+  const photoURL = userProfile?.photoURL ?? user?.photoURL ?? null;
+  const headgearTextureUrl = getHeadgearTexture(
+    headgearItems,
+    avatarConfig.headgearId,
+  );
+
+  const nearbyNpc = useMemo(
+    () => findNearbyNpc(gridPosition, room.npcs),
+    [gridPosition, room.npcs],
+  );
+  const nearbyPortal = useMemo(
+    () => findNearbyPortal(gridPosition, room.portals),
+    [gridPosition, room.portals],
+  );
+
+  const portalLocked = useMemo(() => {
+    if (!nearbyPortal) return true;
+    return !unlockedPortalIds.has(nearbyPortal.id);
+  }, [nearbyPortal, unlockedPortalIds]);
 
   const enterPortal = useCallback(
     (portalId: string) => {
@@ -119,40 +175,76 @@ export function PlayScene({
 
   const handlePortalEnter = useCallback(
     (portalId: string) => {
-      if (position.x === room.portals.find((p) => p.id === portalId)?.x &&
-          position.z === room.portals.find((p) => p.id === portalId)?.z) {
+      const portal = room.portals.find((p) => p.id === portalId);
+      if (
+        portal &&
+        gridPosition.x === portal.x &&
+        gridPosition.z === portal.z
+      ) {
         enterPortal(portalId);
       }
     },
-    [enterPortal, position, room.portals],
+    [enterPortal, gridPosition, room.portals],
   );
 
   const handleFloorStep = useCallback(
     (x: number, z: number) => {
-      moveTo(x, z);
+      if (inputPaused) return;
+      if (!canOccupyCell(x, z, room, blockedCells)) return;
+      moveToGrid(x, z);
       const portal = room.portals.find((p) => p.x === x && p.z === z);
       if (portal && unlockedPortalIds.has(portal.id)) {
         enterPortal(portal.id);
       }
     },
-    [moveTo, room.portals, unlockedPortalIds, enterPortal],
+    [moveToGrid, room, blockedCells, unlockedPortalIds, enterPortal, inputPaused],
   );
 
   return (
     <div className="relative h-full w-full">
-      <RoomCanvas>
+      <RoomCanvas followPosition={visualPosition}>
         <Room
           room={room}
           tilesets={tilesets}
           playMode
-          playerPosition={position}
+          playerGridPosition={gridPosition}
+          playerVisualPosition={visualPosition}
+          playerAvatarConfig={avatarConfig}
+          playerPhotoURL={photoURL}
+          playerHeadgearTextureUrl={headgearTextureUrl}
+          playerIsMoving={isMoving && !inputPaused}
+          playerFacingRow={facingRow}
           unlockedPortalIds={unlockedPortalIds}
           onPortalEnter={handlePortalEnter}
           onFloorStep={handleFloorStep}
         />
+        {chatNpc && (
+          <NpcScreenProjector
+            npc={chatNpc}
+            tilesets={tilesets}
+            anchorRef={speechBubbleRef}
+          />
+        )}
       </RoomCanvas>
 
+      {chatNpc && (
+        <NpcSpeechBubble
+          ref={speechBubbleRef}
+          npc={chatNpc}
+          lines={npcLines}
+        />
+      )}
+
+      {isMobile && !inputPaused && (
+        <VirtualJoystick
+          className="absolute bottom-6 left-4 z-20 md:hidden"
+          onMove={applyJoystick}
+        />
+      )}
+
       <PlayHud
+        isMobile={isMobile}
+        chatOpen={inputPaused}
         nearbyNpc={nearbyNpc}
         portalLocked={portalLocked}
         portalNearby={Boolean(nearbyPortal)}
@@ -161,11 +253,16 @@ export function PlayScene({
       />
 
       {chatNpc && (
-        <NpcChatOverlay
+        <NpcChatBar
           npc={chatNpc}
           roomId={roomId}
+          userLines={userLines}
+          input={chatInput}
+          sending={chatSending}
+          onInputChange={setChatInput}
+          onSend={() => void sendChat()}
           onClose={() => setChatNpc(null)}
-          onPassed={handleNpcPassed}
+          onBribeVerified={registerBribePayment}
         />
       )}
     </div>

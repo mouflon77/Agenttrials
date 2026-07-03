@@ -6,7 +6,13 @@ runConfig:
 
 # Required for production — set values in Firebase Console or via secrets.
 # Console: App Hosting > trials > Environment variables
-# CLI: firebase apphosting:secrets:set SECRET_NAME
+#
+# Sensitive keys (GEMINI_API_KEY, TWITTER_CLIENT_SECRET): use Secret Manager.
+# CLI: npx firebase-tools apphosting:secrets:set GEMINI_API_KEY
+#      npx firebase-tools apphosting:secrets:grantaccess GEMINI_API_KEY --backend trials
+#
+# Plain env vars in the console are visible to anyone with project access.
+# Secrets are stored in Google Cloud Secret Manager and injected at runtime only.
 #
 # env:
 #   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
@@ -38,4 +44,36 @@ runConfig:
 #     value: your_app_id
 #     availability:
 #       - BUILD
+#       - RUNTIME
+#   # Server-only — Secret Manager (never NEXT_PUBLIC_)
+#   - variable: GEMINI_API_KEY
+#     secret: GEMINI_API_KEY
+#     availability:
+#       - RUNTIME
+#   # Agent wallets (Turnkey + GCP Secret Manager)
+#   - variable: GCP_PROJECT_ID
+#     value: agenttrials-xo
+#     availability:
+#       - RUNTIME
+#   - variable: NEXT_PUBLIC_TURNKEY_ORGANIZATION_ID
+#     value: your_turnkey_org_id
+#     availability:
+#       - BUILD
+#       - RUNTIME
+#   - variable: NEXT_PUBLIC_RP_ID
+#     value: your-app-hosting-domain.web.app
+#     availability:
+#       - BUILD
+#       - RUNTIME
+#   - variable: APP_ORIGIN
+#     value: https://your-app-hosting-domain.web.app
+#     availability:
+#       - RUNTIME
+#   - variable: AUTO_SIGN_THRESHOLD_SOL
+#     value: "0.1"
+#     availability:
+#       - RUNTIME
+#   - variable: TWITTER_CLIENT_SECRET
+#     secret: TWITTER_CLIENT_SECRET
+#     availability:
 #       - RUNTIME
