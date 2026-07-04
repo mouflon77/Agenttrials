@@ -1,0 +1,6 @@
+node_modules/
+*.tsbuildinfo
+.npm-cache/
+*.log
+.DS_Store
+Thumbs.db
