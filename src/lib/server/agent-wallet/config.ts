@@ -18,6 +18,7 @@ export function getAppOrigin(): string {
     process.env.NEXT_PUBLIC_APP_ORIGIN?.trim();
   if (origin) return origin.replace(/\/$/, "");
 
+  // Legacy Vercel deploy fallback — prefer explicit APP_ORIGIN on App Hosting.
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }

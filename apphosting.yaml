@@ -1,79 +1,87 @@
 # Firebase App Hosting config for backend: trials
+# https://trials--agenttrials-xo.us-east4.hosted.app
 # Docs: https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
   minInstances: 0
 
-# Required for production — set values in Firebase Console or via secrets.
-# Console: App Hosting > trials > Environment variables
-#
-# Sensitive keys (GEMINI_API_KEY, TWITTER_CLIENT_SECRET): use Secret Manager.
-# CLI: npx firebase-tools apphosting:secrets:set GEMINI_API_KEY
-#      npx firebase-tools apphosting:secrets:grantaccess GEMINI_API_KEY --backend trials
-#
-# Plain env vars in the console are visible to anyone with project access.
-# Secrets are stored in Google Cloud Secret Manager and injected at runtime only.
-#
-# env:
-#   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-#     value: your_api_key
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-#     value: agenttrials-xo.firebaseapp.com
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
-#     value: agenttrials-xo
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-#     value: agenttrials-xo.firebasestorage.app  # NOT .appspot.com
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-#     value: "770439905353"
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
-#     value: your_app_id
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   # Server-only — Secret Manager (never NEXT_PUBLIC_)
-#   - variable: GEMINI_API_KEY
-#     secret: GEMINI_API_KEY
-#     availability:
-#       - RUNTIME
-#   # Agent wallets (Turnkey + GCP Secret Manager)
-#   - variable: GCP_PROJECT_ID
-#     value: agenttrials-xo
-#     availability:
-#       - RUNTIME
-#   - variable: NEXT_PUBLIC_TURNKEY_ORGANIZATION_ID
-#     value: your_turnkey_org_id
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   - variable: NEXT_PUBLIC_RP_ID
-#     value: your-app-hosting-domain.web.app
-#     availability:
-#       - BUILD
-#       - RUNTIME
-#   - variable: APP_ORIGIN
-#     value: https://your-app-hosting-domain.web.app
-#     availability:
-#       - RUNTIME
-#   - variable: AUTO_SIGN_THRESHOLD_SOL
-#     value: "0.1"
-#     availability:
-#       - RUNTIME
-#   - variable: TWITTER_CLIENT_SECRET
-#     secret: TWITTER_CLIENT_SECRET
-#     availability:
-#       - RUNTIME
+env:
+  # ── Firebase client (required at BUILD + RUNTIME for Next.js) ──────────────
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyCCzpSGzC3vKhbO6PZl0i_MLrXbSpTAD_k
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: agenttrials-xo.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: agenttrials-xo
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: agenttrials-xo.firebasestorage.app
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "770439905353"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:770439905353:web:0809109c98c753e812ff98
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_ADMIN_UID
+    value: f9wakLAwn1OWGscuQpyqikGAdiO2
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # ── App Hosting URLs (NOT Vercel) ──────────────────────────────────────────
+  - variable: APP_ORIGIN
+    value: https://trials--agenttrials-xo.us-east4.hosted.app
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_APP_ORIGIN
+    value: https://trials--agenttrials-xo.us-east4.hosted.app
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_RP_ID
+    value: trials--agenttrials-xo.us-east4.hosted.app
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # ── Server / wallet backend ──────────────────────────────────────────────
+  - variable: GCP_PROJECT_ID
+    value: agenttrials-xo
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_TURNKEY_ORGANIZATION_ID
+    value: c600333c-2f73-4144-9e28-7f570cefbc8e
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: AUTO_SIGN_THRESHOLD_SOL
+    value: "0.01"
+    availability:
+      - RUNTIME
+
+  # Secrets — create in Secret Manager, then uncomment and grant access:
+  #   npx firebase-tools apphosting:secrets:set GEMINI_API_KEY
+  #   npx firebase-tools apphosting:secrets:grantaccess GEMINI_API_KEY --backend trials
+  # - variable: GEMINI_API_KEY
+  #   secret: GEMINI_API_KEY
+  #   availability:
+  #     - RUNTIME
+  # - variable: TWITTER_CLIENT_SECRET
+  #   secret: TWITTER_CLIENT_SECRET
+  #   availability:
+  #     - RUNTIME

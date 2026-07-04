@@ -9,7 +9,8 @@
     "indexes": "firestore.indexes.json"
   },
   "storage": {
-    "rules": "storage.rules"
+    "rules": "storage.rules",
+    "bucket": "agenttrials-xo.firebasestorage.app"
   },
   "apphosting": {
     "backendId": "trials",
@@ -20,6 +21,7 @@
       "firebase-debug.log",
       "firebase-debug.*.log",
       "functions"
-    ]
+    ],
+    "alwaysDeployFromSource": true
   }
 }

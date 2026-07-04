@@ -35,5 +35,12 @@ export function getFirebaseDb(): Firestore {
 }
 
 export function getFirebaseStorage(): FirebaseStorage {
-  return getStorage(getFirebaseApp());
+  const bucket = firebaseConfig.storageBucket?.trim();
+  if (!bucket) {
+    throw new Error(
+      "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is not set. Use PROJECT_ID.firebasestorage.app",
+    );
+  }
+  const gsBucket = bucket.startsWith("gs://") ? bucket : `gs://${bucket}`;
+  return getStorage(getFirebaseApp(), gsBucket);
 }

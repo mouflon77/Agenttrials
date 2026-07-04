@@ -1,6 +1,7 @@
 import { initializeApp, getApps, cert, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 function initAdminApp(): App {
   const existing = getApps()[0];
@@ -15,11 +16,26 @@ function initAdminApp(): App {
     return initializeApp({
       credential: cert(JSON.parse(serviceAccountJson) as Record<string, string>),
       projectId,
+      storageBucket: resolveStorageBucket(projectId),
     });
   }
 
   // App Hosting / Cloud Run — Application Default Credentials
-  return initializeApp({ projectId });
+  return initializeApp({
+    projectId,
+    storageBucket: resolveStorageBucket(projectId),
+  });
+}
+
+function resolveStorageBucket(projectId?: string): string | undefined {
+  const configured = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim();
+  if (configured) {
+    return configured.replace(/^gs:\/\//, "");
+  }
+  if (projectId) {
+    return `${projectId}.firebasestorage.app`;
+  }
+  return undefined;
 }
 
 export function getFirebaseAdminApp(): App {
@@ -32,4 +48,8 @@ export function getFirebaseAdminAuth() {
 
 export function getFirebaseAdminDb() {
   return getFirestore(getFirebaseAdminApp());
+}
+
+export function getFirebaseAdminBucket() {
+  return getStorage(getFirebaseAdminApp()).bucket();
 }

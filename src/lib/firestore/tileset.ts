@@ -8,8 +8,8 @@ import {
   updateDoc,
   type Unsubscribe,
 } from "firebase/firestore";
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { getFirebaseDb, getFirebaseStorage } from "@/lib/firebase";
+import { deleteObject, ref } from "firebase/storage";
+import { getFirebaseAuth, getFirebaseDb, getFirebaseStorage } from "@/lib/firebase";
 import {
   TILESET_CATEGORIES,
   createEmptyTilesetRegistry,
@@ -18,13 +18,6 @@ import {
   type TileCategory,
   type TilesetRegistry,
 } from "@/lib/tileset-collections";
-import {
-  clampTexturePx,
-  isSvgFile,
-  isSupportedTextureFile,
-  readTextureDimensions,
-  validateTextureDimensions,
-} from "@/lib/texture-utils";
 import type { TilesetDocument } from "@/types/room";
 
 export function subscribeToTilesets(
@@ -73,56 +66,49 @@ export interface UploadTileOptions {
   gridDepth?: number;
 }
 
+/** Upload via server API — avoids browser Storage CORS on App Hosting. */
 export async function uploadTileTexture(
   options: UploadTileOptions,
 ): Promise<{ id: string; tile: TilesetDocument }> {
-  const {
-    file,
-    name,
-    category,
-    pixelWidth,
-    pixelHeight,
-    gridWidth,
-    gridDepth,
-  } = options;
-
-  if (!isSupportedTextureFile(file)) {
-    throw new Error("Only PNG and SVG files are supported.");
+  const user = getFirebaseAuth().currentUser;
+  if (!user) {
+    throw new Error("You must be signed in to upload.");
   }
 
-  const pxW = clampTexturePx(pixelWidth);
-  const pxH = clampTexturePx(pixelHeight);
-  const sizeError = validateTextureDimensions(pxW, pxH);
-  if (sizeError) {
-    throw new Error(sizeError);
+  const token = await user.getIdToken();
+  const form = new FormData();
+  form.append("file", options.file);
+  form.append("name", options.name);
+  form.append("category", options.category);
+  form.append("pixelWidth", String(options.pixelWidth));
+  form.append("pixelHeight", String(options.pixelHeight));
+  if (options.gridWidth != null) {
+    form.append("gridWidth", String(options.gridWidth));
+  }
+  if (options.gridDepth != null) {
+    form.append("gridDepth", String(options.gridDepth));
   }
 
-  const id = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-  const collectionName = getTilesetCollection(category);
-  const storageRef = ref(
-    getFirebaseStorage(),
-    `tilesets/${collectionName}/${id}`,
-  );
+  const response = await fetch("/api/admin/tileset/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
 
-  const contentType = isSvgFile(file)
-    ? "image/svg+xml"
-    : file.type || "image/png";
-
-  await uploadBytes(storageRef, file, { contentType });
-  const textureUrl = await getDownloadURL(storageRef);
-
-  const metadata: TilesetDocument = {
-    name,
-    textureUrl,
-    width: Math.round(gridWidth ?? (category === "furniture" ? 2 : 1)),
-    depth: Math.round(gridDepth ?? 1),
-    pixelWidth: pxW,
-    pixelHeight: pxH,
-    ...(isSvgFile(file) ? { format: "svg" as const } : {}),
+  const payload = (await response.json()) as {
+    id?: string;
+    tile?: TilesetDocument;
+    error?: string;
   };
 
-  await setDoc(doc(getFirebaseDb(), collectionName, id), metadata);
-  return { id, tile: metadata };
+  if (!response.ok) {
+    throw new Error(payload.error ?? "Upload failed. Try again.");
+  }
+  if (!payload.id || !payload.tile) {
+    throw new Error("Upload succeeded but server returned an invalid response.");
+  }
+
+  return { id: payload.id, tile: payload.tile };
 }
 
 export async function renameTile(
