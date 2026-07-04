@@ -20,8 +20,7 @@ import {
 } from "@/lib/tileset-collections";
 import {
   clampTexturePx,
-  contentTypeForTexture,
-  formatForTexture,
+  isSvgFile,
   isSupportedTextureFile,
   readTextureDimensions,
   validateTextureDimensions,
@@ -74,50 +73,6 @@ export interface UploadTileOptions {
   gridDepth?: number;
 }
 
-function uploadErrorMessage(err: unknown): string {
-  const code =
-    err && typeof err === "object" && "code" in err
-      ? String((err as { code: unknown }).code)
-      : "";
-  const message =
-    err instanceof Error ? err.message : "Upload failed. Try again.";
-
-  if (
-    code === "storage/unauthorized" ||
-    code === "permission-denied" ||
-    /unauthorized|permission/i.test(message)
-  ) {
-    return "Upload blocked by Firebase rules. Deploy storage + Firestore rules (SVG support), then retry.";
-  }
-  if (code === "storage/canceled") {
-    return "Upload was canceled.";
-  }
-  if (code === "storage/retry-limit-exceeded") {
-    return "Upload timed out. Check your network and try again.";
-  }
-  return message;
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s.`));
-        }, ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 export async function uploadTileTexture(
   options: UploadTileOptions,
 ): Promise<{ id: string; tile: TilesetDocument }> {
@@ -131,78 +86,43 @@ export async function uploadTileTexture(
     gridDepth,
   } = options;
 
-  try {
-    if (!isSupportedTextureFile(file)) {
-      throw new Error("Only PNG and SVG files are supported.");
-    }
-
-    const format = formatForTexture(file);
-    // Re-validate intrinsic size for rasters; SVG display size is set by the editor.
-    if (format === "png") {
-      const actual = await readTextureDimensions(file);
-      const dimensionError = validateTextureDimensions(
-        actual.width,
-        actual.height,
-      );
-      if (dimensionError) {
-        throw new Error(dimensionError);
-      }
-    }
-
-    const pxW = clampTexturePx(pixelWidth);
-    const pxH = clampTexturePx(pixelHeight);
-    const sizeError = validateTextureDimensions(pxW, pxH);
-    if (sizeError) {
-      throw new Error(sizeError);
-    }
-
-    // Keep a stable extension so vector URLs are detected as SVG in the room.
-    const ext = format === "svg" ? ".svg" : ".png";
-    const baseName = file.name
-      .replace(/\.(png|svg)$/i, "")
-      .replace(/[^a-zA-Z0-9._-]/g, "_");
-    const id = `${Date.now()}_${baseName}${ext}`;
-    const collectionName = getTilesetCollection(category);
-    const contentType = contentTypeForTexture(file);
-    const storageRef = ref(
-      getFirebaseStorage(),
-      `tilesets/${collectionName}/${id}`,
-    );
-
-    // Read bytes once so prior file.text() reads cannot interfere with upload.
-    const bytes = await file.arrayBuffer();
-    const blob = new Blob([bytes], { type: contentType });
-
-    await withTimeout(
-      uploadBytes(storageRef, blob, { contentType }),
-      45_000,
-      "Storage upload",
-    );
-    const textureUrl = await withTimeout(
-      getDownloadURL(storageRef),
-      15_000,
-      "Getting download URL",
-    );
-
-    const metadata: TilesetDocument = {
-      name,
-      textureUrl,
-      width: Math.round(gridWidth ?? (category === "furniture" ? 2 : 1)),
-      depth: Math.round(gridDepth ?? 1),
-      pixelWidth: pxW,
-      pixelHeight: pxH,
-      format,
-    };
-
-    await withTimeout(
-      setDoc(doc(getFirebaseDb(), collectionName, id), metadata),
-      15_000,
-      "Saving tile metadata",
-    );
-    return { id, tile: metadata };
-  } catch (err) {
-    throw new Error(uploadErrorMessage(err));
+  if (!isSupportedTextureFile(file)) {
+    throw new Error("Only PNG and SVG files are supported.");
   }
+
+  const pxW = clampTexturePx(pixelWidth);
+  const pxH = clampTexturePx(pixelHeight);
+  const sizeError = validateTextureDimensions(pxW, pxH);
+  if (sizeError) {
+    throw new Error(sizeError);
+  }
+
+  const id = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const collectionName = getTilesetCollection(category);
+  const storageRef = ref(
+    getFirebaseStorage(),
+    `tilesets/${collectionName}/${id}`,
+  );
+
+  const contentType = isSvgFile(file)
+    ? "image/svg+xml"
+    : file.type || "image/png";
+
+  await uploadBytes(storageRef, file, { contentType });
+  const textureUrl = await getDownloadURL(storageRef);
+
+  const metadata: TilesetDocument = {
+    name,
+    textureUrl,
+    width: Math.round(gridWidth ?? (category === "furniture" ? 2 : 1)),
+    depth: Math.round(gridDepth ?? 1),
+    pixelWidth: pxW,
+    pixelHeight: pxH,
+    ...(isSvgFile(file) ? { format: "svg" as const } : {}),
+  };
+
+  await setDoc(doc(getFirebaseDb(), collectionName, id), metadata);
+  return { id, tile: metadata };
 }
 
 export async function renameTile(

@@ -777,7 +777,7 @@ export default function AdminEditorClient() {
     setUploadError(null);
     setUploadSuccess(null);
     try {
-      const { id, tile } = await uploadTileTexture({
+      const uploadPromise = uploadTileTexture({
         file: pendingFile,
         name: pendingTileName.trim(),
         category: paletteCategory,
@@ -786,6 +786,17 @@ export default function AdminEditorClient() {
         gridWidth: paletteCategory === "furniture" ? gridWidth : 1,
         gridDepth: paletteCategory === "furniture" ? gridDepth : 1,
       });
+
+      const { id, tile } = await Promise.race([
+        uploadPromise,
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error("Upload timed out after 60s.")),
+            60_000,
+          );
+        }),
+      ]);
+
       addTile(paletteCategory, id, tile);
       selectItem(id);
       clearPendingUpload();
@@ -793,8 +804,16 @@ export default function AdminEditorClient() {
         `“${tile.name}” saved to ${EDITOR_TAB_LABELS[paletteCategory]} tileset`,
       );
     } catch (err) {
-      const message =
+      const raw =
         err instanceof Error ? err.message : "Upload failed. Try again.";
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "";
+      const message =
+        code === "storage/unauthorized" || /permission/i.test(raw)
+          ? "Upload denied — check you're signed in as admin."
+          : raw;
       setUploadError(message);
       console.error("[tileset upload]", err);
     } finally {

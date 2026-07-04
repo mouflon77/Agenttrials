@@ -1,17 +1,12 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function isImageTexture() {
-      return request.resource.contentType == 'image/png'
-        || request.resource.contentType == 'image/svg+xml'
-        || request.resource.contentType.matches('image/svg\\+xml.*');
-    }
-
     match /headgear/{fileName} {
       allow read: if request.auth != null;
       allow write: if request.auth != null
         && request.resource.size < 2 * 1024 * 1024
-        && isImageTexture();
+        && (request.resource.contentType == 'image/png'
+          || request.resource.contentType == 'image/svg+xml');
       allow delete: if request.auth != null;
     }
 
@@ -20,7 +15,8 @@ service firebase.storage {
       allow write: if request.auth != null
         && category in ['floors', 'walls', 'doors', 'windows', 'furniture', 'standees']
         && request.resource.size < 5 * 1024 * 1024
-        && isImageTexture();
+        && (request.resource.contentType == 'image/png'
+          || request.resource.contentType == 'image/svg+xml');
       allow delete: if request.auth != null
         && category in ['floors', 'walls', 'doors', 'windows', 'furniture', 'standees'];
     }
