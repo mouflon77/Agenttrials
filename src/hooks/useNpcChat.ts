@@ -13,10 +13,10 @@ export interface ChatLine {
 function greetingFor(npc: NpcItem): ChatLine {
   const bribeHint = npcAcceptsBribes(npc)
     ? ` I accept ${npc.bribeAmountSol} SOL bribes — or try to talk your way through.`
-    : "";
+    : " Convince me if you want the portal unlocked.";
   return {
     role: "npc",
-    text: `Hi, I'm ${npc.name}. ${npc.prompt || "Convince me to unlock the portal."}${bribeHint}`,
+    text: `Hi, I'm ${npc.name}.${bribeHint}`,
   };
 }
 
@@ -83,6 +83,7 @@ export function useNpcChat(
           npcId: npc.id,
           npcName: npc.name,
           npcPrompt: npc.prompt,
+          npcStats: npc.stats,
           npcWalletAddress: npc.walletAddress,
           bribeAmountSol: npc.bribeAmountSol,
           message,

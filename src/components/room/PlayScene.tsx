@@ -132,8 +132,6 @@ export function PlayScene({
   const {
     gridPosition,
     visualPosition,
-    isMoving,
-    facingRow,
     moveToGrid,
     applyJoystick,
   } = usePlayerMovement(initialSpawn, blockedCells, room, inputPaused);
@@ -142,6 +140,11 @@ export function PlayScene({
     userProfile?.avatarConfig ?? DEFAULT_AVATAR_CONFIG,
   );
   const photoURL = userProfile?.photoURL ?? user?.photoURL ?? null;
+  const displayName =
+    userProfile?.twitterHandle?.replace(/^@/, "") ||
+    userProfile?.displayName ||
+    user?.displayName ||
+    "Player";
   const headgearTextureUrl = getHeadgearTexture(
     headgearItems,
     avatarConfig.headgearId,
@@ -212,8 +215,7 @@ export function PlayScene({
           playerAvatarConfig={avatarConfig}
           playerPhotoURL={photoURL}
           playerHeadgearTextureUrl={headgearTextureUrl}
-          playerIsMoving={isMoving && !inputPaused}
-          playerFacingRow={facingRow}
+          playerDisplayName={displayName}
           unlockedPortalIds={unlockedPortalIds}
           onPortalEnter={handlePortalEnter}
           onFloorStep={handleFloorStep}

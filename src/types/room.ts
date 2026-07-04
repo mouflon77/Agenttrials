@@ -26,6 +26,100 @@ export interface FurnitureItem {
   color?: string;
 }
 
+/**
+ * Negotiation profile for a floor gatekeeper (0–100 scales).
+ * Fed into the AI judge; not shown directly to the player.
+ */
+export interface GatekeeperStats {
+  /** Resistance to flattery / ego appeals. Higher = harder to sway with praise. */
+  egoArmor: number;
+  /** Mood instability. Higher = quicker to escalate, snap, or flip. */
+  volatility: number;
+  /** Need to feel in charge. Higher = must lead / not be told what to do. */
+  controlNeed: number;
+  /** Reluctance to reveal what they want. Higher = more cryptic / withholding. */
+  informationLock: number;
+  /**
+   * How much "that's right" / felt understanding the player must earn to pass
+   * (Chris Voss–style). Higher = longer, deeper rapport required.
+   */
+  thatsRightThreshold: number;
+}
+
+/** Sensible floor-1 defaults (Administrative Assistant profile). */
+export const DEFAULT_GATEKEEPER_STATS: GatekeeperStats = {
+  egoArmor: 15,
+  volatility: 20,
+  controlNeed: 40,
+  informationLock: 10,
+  thatsRightThreshold: 25,
+};
+
+export const GATEKEEPER_STAT_META: Array<{
+  key: keyof GatekeeperStats;
+  label: string;
+  hint: string;
+}> = [
+  {
+    key: "egoArmor",
+    label: "Ego Armor",
+    hint: "Resistance to flattery / ego appeals",
+  },
+  {
+    key: "volatility",
+    label: "Volatility",
+    hint: "How quickly mood escalates or flips",
+  },
+  {
+    key: "controlNeed",
+    label: "Control Need",
+    hint: "Need to feel in charge of the exchange",
+  },
+  {
+    key: "informationLock",
+    label: "Information Lock",
+    hint: "Reluctance to reveal what they want",
+  },
+  {
+    key: "thatsRightThreshold",
+    label: '"That\'s Right" Threshold',
+    hint: "Depth of understanding required to pass",
+  },
+];
+
+export function clampGatekeeperStat(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+export function normalizeGatekeeperStats(
+  raw?: Partial<GatekeeperStats> | null,
+): GatekeeperStats {
+  return {
+    egoArmor: clampGatekeeperStat(
+      raw?.egoArmor,
+      DEFAULT_GATEKEEPER_STATS.egoArmor,
+    ),
+    volatility: clampGatekeeperStat(
+      raw?.volatility,
+      DEFAULT_GATEKEEPER_STATS.volatility,
+    ),
+    controlNeed: clampGatekeeperStat(
+      raw?.controlNeed,
+      DEFAULT_GATEKEEPER_STATS.controlNeed,
+    ),
+    informationLock: clampGatekeeperStat(
+      raw?.informationLock,
+      DEFAULT_GATEKEEPER_STATS.informationLock,
+    ),
+    thatsRightThreshold: clampGatekeeperStat(
+      raw?.thatsRightThreshold,
+      DEFAULT_GATEKEEPER_STATS.thatsRightThreshold,
+    ),
+  };
+}
+
 export interface NpcItem {
   id: string;
   /** Standee tileset id */
@@ -33,8 +127,13 @@ export interface NpcItem {
   x: number;
   z: number;
   name: string;
-  /** System prompt / negotiation context for the AI gatekeeper */
+  /**
+   * Disposition / conditions for this floor's gatekeeper (AI-only).
+   * e.g. "bored, protective of their time, and expects you to be demanding."
+   */
   prompt: string;
+  /** Negotiation stats that shape how hard this gatekeeper is to pass. */
+  stats: GatekeeperStats;
   /**
    * Agent wallet public key (from AgentWallets `npm run setup`).
    * Receives bribes during negotiation.
@@ -56,6 +155,8 @@ export interface PortalItem {
 export const DEFAULT_FURNITURE_COLOR = "#6b5b4f";
 
 export interface RoomDocument {
+  /** Optional display name, e.g. "Floor 1 — Lobby". */
+  title?: string;
   floorColor: string;
   wallColor: string;
   floorGrid: Record<string, string>;
@@ -67,15 +168,48 @@ export interface RoomDocument {
   portals: PortalItem[];
 }
 
+/** Lightweight listing entry for floor pickers. */
+export interface RoomListItem {
+  id: string;
+  title?: string;
+}
+
+export function formatRoomLabel(room: RoomListItem): string {
+  const title = room.title?.trim();
+  return title ? `${room.id} · ${title}` : room.id;
+}
+
+/** Normalize a user-entered room id to a safe Firestore doc id. */
+export function sanitizeRoomId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_-]/g, "")
+    .replace(/^[_\-]+/, "")
+    .slice(0, 64);
+}
+
+export function suggestNextRoomId(existingIds: string[]): string {
+  let max = 0;
+  for (const id of existingIds) {
+    const match = /^room_(\d+)$/i.exec(id);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `room_${String(max + 1).padStart(2, "0")}`;
+}
+
 export interface TilesetDocument {
   name: string;
   textureUrl: string;
   /** Grid footprint (furniture) */
   width: number;
   depth: number;
-  /** PNG pixel dimensions for texture scaling (max 256) */
+  /** Display size for texture scaling (max 256; 64 = 1 tile unit) */
   pixelWidth: number;
   pixelHeight: number;
+  /** Texture format; omit or "png" for pixel art, "svg" for vectors. */
+  format?: "png" | "svg";
 }
 
 export function floorIndex(x: number, z: number): string {
@@ -200,6 +334,7 @@ export function normalizeNpcs(items: NpcItem[]): NpcItem[] {
       id: npcItemId(item, index),
       name: item.name ?? "NPC",
       prompt: item.prompt ?? "",
+      stats: normalizeGatekeeperStats(item.stats),
       standeeType: item.standeeType ?? "default_standee",
       walletAddress,
       bribeAmountSol,
@@ -245,8 +380,9 @@ export function isWithinTiles(
   return tileDistance(ax, az, bx, bz) <= radius;
 }
 
-export function createDefaultRoom(): RoomDocument {
+export function createDefaultRoom(title?: string): RoomDocument {
   return {
+    ...(title?.trim() ? { title: title.trim() } : {}),
     floorColor: "#c8b89a",
     wallColor: "#8b7355",
     floorGrid: createDefaultFloorGrid(),
@@ -261,7 +397,9 @@ export function createDefaultRoom(): RoomDocument {
 
 export function normalizeRoom(data: Partial<RoomDocument>): RoomDocument {
   const defaults = createDefaultRoom();
+  const title = data.title?.trim() || undefined;
   return {
+    ...(title ? { title } : {}),
     floorColor: data.floorColor ?? defaults.floorColor,
     wallColor: data.wallColor ?? defaults.wallColor,
     floorGrid: { ...defaults.floorGrid, ...data.floorGrid },

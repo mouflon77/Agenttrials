@@ -13,6 +13,7 @@ import {
 import type { AvatarConfig } from "@/types/avatar";
 import type { WorldPosition } from "@/lib/movement";
 import type { EditorMode, NpcItem, PlayerPosition, PortalItem, RoomDocument, WallSide } from "@/types/room";
+import { DEFAULT_GATEKEEPER_STATS } from "@/types/room";
 import { Tile } from "@/components/room/Tile";
 import { FloorLayer, getUniformFloor } from "@/components/room/FloorLayer";
 import { FurnitureGhost, FurnitureMesh } from "@/components/room/Furniture";
@@ -49,8 +50,7 @@ interface RoomProps {
   playerAvatarConfig?: AvatarConfig | null;
   playerPhotoURL?: string | null;
   playerHeadgearTextureUrl?: string;
-  playerIsMoving?: boolean;
-  playerFacingRow?: number;
+  playerDisplayName?: string | null;
   unlockedPortalIds?: Set<string>;
   onPortalEnter?: (portalId: string) => void;
   onFloorStep?: (x: number, z: number) => void;
@@ -120,8 +120,7 @@ export function Room({
   playerAvatarConfig = null,
   playerPhotoURL = null,
   playerHeadgearTextureUrl,
-  playerIsMoving = false,
-  playerFacingRow = 2,
+  playerDisplayName = null,
   unlockedPortalIds,
   onPortalEnter,
   onFloorStep,
@@ -362,6 +361,7 @@ export function Room({
             pickable={npcPickable}
             selected={npcPickable && selectedNpcId === npc.id}
             onSelect={onNpcSelect}
+            showLabel={playMode}
           />
         ))}
 
@@ -387,8 +387,7 @@ export function Room({
             avatarConfig={playerAvatarConfig}
             photoURL={playerPhotoURL}
             headgearTextureUrl={playerHeadgearTextureUrl}
-            isMoving={playerIsMoving}
-            facingRow={playerFacingRow}
+            displayName={playerDisplayName}
           />
         )}
 
@@ -401,6 +400,7 @@ export function Room({
               z: npcGhostPosition.z,
               name: "NPC",
               prompt: "",
+              stats: DEFAULT_GATEKEEPER_STATS,
             }}
             tilesets={tilesets}
           />

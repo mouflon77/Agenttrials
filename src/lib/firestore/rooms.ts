@@ -1,5 +1,8 @@
 import {
+  collection,
+  deleteField,
   doc,
+  getDoc,
   onSnapshot,
   setDoc,
   updateDoc,
@@ -14,10 +17,12 @@ import {
   normalizeFurniture,
   normalizeNpcs,
   normalizePortals,
+  sanitizeRoomId,
   type FurnitureItem,
   type NpcItem,
   type PortalItem,
   type RoomDocument,
+  type RoomListItem,
 } from "@/types/room";
 
 export function subscribeToRoom(
@@ -39,9 +44,69 @@ export function subscribeToRoom(
   );
 }
 
+export function subscribeToRoomList(
+  onData: (rooms: RoomListItem[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const ref = collection(getFirebaseDb(), "rooms");
+  return onSnapshot(
+    ref,
+    (snapshot) => {
+      const rooms: RoomListItem[] = snapshot.docs.map((entry) => {
+        const data = entry.data() as Partial<RoomDocument>;
+        const title = data.title?.trim() || undefined;
+        return {
+          id: entry.id,
+          ...(title ? { title } : {}),
+        };
+      });
+      rooms.sort((a, b) =>
+        a.id.localeCompare(b.id, undefined, { numeric: true }),
+      );
+      onData(rooms);
+    },
+    (error) => onError?.(error),
+  );
+}
+
 export async function ensureRoom(roomId: string): Promise<void> {
   const ref = doc(getFirebaseDb(), "rooms", roomId);
   await setDoc(ref, createDefaultRoom(), { merge: true });
+}
+
+/**
+ * Create a brand-new floor. Fails if the id already exists.
+ */
+export async function createRoom(
+  roomId: string,
+  options?: { title?: string },
+): Promise<string> {
+  const id = sanitizeRoomId(roomId);
+  if (!id) {
+    throw new Error("Enter a valid floor id (letters, numbers, _ or -).");
+  }
+
+  const ref = doc(getFirebaseDb(), "rooms", id);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    throw new Error(`Floor “${id}” already exists.`);
+  }
+
+  await setDoc(ref, createDefaultRoom(options?.title));
+  return id;
+}
+
+export async function updateRoomTitle(
+  roomId: string,
+  title: string,
+): Promise<void> {
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  const trimmed = title.trim();
+  if (trimmed) {
+    await updateDoc(ref, { title: trimmed });
+  } else {
+    await updateDoc(ref, { title: deleteField() });
+  }
 }
 
 export async function saveRoom(
@@ -54,13 +119,16 @@ export async function saveRoom(
 
 export async function resetRoom(roomId: string): Promise<void> {
   const ref = doc(getFirebaseDb(), "rooms", roomId);
-  await setDoc(ref, createDefaultRoom());
+  const snap = await getDoc(ref);
+  const title = snap.exists()
+    ? (snap.data() as Partial<RoomDocument>).title
+    : undefined;
+  await setDoc(ref, createDefaultRoom(title));
 }
 
 /** Persist stable ids for furniture saved before ids were required. */
 export async function migrateFurnitureIds(roomId: string): Promise<void> {
   const ref = doc(getFirebaseDb(), "rooms", roomId);
-  const { getDoc } = await import("firebase/firestore");
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
 
@@ -205,6 +273,7 @@ export async function updateNpcItem(
       | "standeeType"
       | "name"
       | "prompt"
+      | "stats"
       | "walletAddress"
       | "bribeAmountSol"
     >

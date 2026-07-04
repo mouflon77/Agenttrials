@@ -31,7 +31,8 @@ import {
 import { seedDefaultTilesets, deleteTile, renameTile, uploadTileTexture } from "@/lib/firestore/tileset";
 import {
   clampTexturePx,
-  readImageDimensions,
+  isSvgFile,
+  readTextureDimensions,
   validateTextureDimensions,
 } from "@/lib/texture-utils";
 import {
@@ -47,16 +48,22 @@ import {
   isTilesetEditorMode,
   paletteCategoryForMode,
 } from "@/lib/editor-modes";
+import { FloorManager } from "@/components/admin/FloorManager";
 import { NpcPortalSidebar } from "@/components/admin/NpcPortalSidebar";
 import { useAgentWallets } from "@/hooks/useAgentWallets";
+import { useRoomList } from "@/hooks/useRoomList";
 import {
   DEFAULT_FURNITURE_COLOR,
+  DEFAULT_GATEKEEPER_STATS,
   GRID_SIZE,
   MAX_TEXTURE_PX,
+  clampGatekeeperStat,
   floorIndex,
   isGridEdge,
+  normalizeGatekeeperStats,
   wallKey,
   type EditorMode,
+  type GatekeeperStats,
   type WallSide,
 } from "@/types/room";
 import {
@@ -87,6 +94,7 @@ export default function AdminEditorClient() {
   const searchParams = useSearchParams();
   const roomId = searchParams.get("roomId") ?? "room_01";
   const { room, loading, error } = useRoom(roomId);
+  const { rooms: roomList, loading: roomListLoading } = useRoomList();
   const { tilesets, isEmpty, loading: tilesetLoading, addTile, renameTileName, removeTile } =
     useTileset();
 
@@ -134,7 +142,10 @@ export default function AdminEditorClient() {
   const [selectedPortalId, setSelectedPortalId] = useState<string | null>(null);
   const [npcName, setNpcName] = useState("Gatekeeper");
   const [npcPrompt, setNpcPrompt] = useState(
-    "Only unlock the portal for players who are polite and make a good case.",
+    "Bored, protective of their time, and expects you to be demanding.",
+  );
+  const [npcStats, setNpcStats] = useState<GatekeeperStats>(
+    DEFAULT_GATEKEEPER_STATS,
   );
   const [npcWalletAddress, setNpcWalletAddress] = useState("");
   const [npcBribeAmountSol, setNpcBribeAmountSol] = useState("");
@@ -405,6 +416,7 @@ export default function AdminEditorClient() {
           z,
           name: npcName.trim() || "NPC",
           prompt: npcPrompt.trim(),
+          stats: normalizeGatekeeperStats(npcStats),
           ...(npcWalletAddress.trim()
             ? { walletAddress: npcWalletAddress.trim() }
             : {}),
@@ -506,6 +518,7 @@ export default function AdminEditorClient() {
     if (npc) {
       setNpcName(npc.name);
       setNpcPrompt(npc.prompt);
+      setNpcStats(normalizeGatekeeperStats(npc.stats));
       setNpcWalletAddress(npc.walletAddress ?? "");
       setNpcBribeAmountSol(
         npc.bribeAmountSol != null ? String(npc.bribeAmountSol) : "",
@@ -516,6 +529,13 @@ export default function AdminEditorClient() {
       setSelectedAgentWalletId(matched?.id ?? "");
       setSelectedByMode((prev) => ({ ...prev, standee: npc.standeeType }));
     }
+  };
+
+  const handleNpcStatChange = (key: keyof GatekeeperStats, value: number) => {
+    setNpcStats((prev) => ({
+      ...prev,
+      [key]: clampGatekeeperStat(value, prev[key]),
+    }));
   };
 
   const handlePortalSelect = (id: string) => {
@@ -542,6 +562,7 @@ export default function AdminEditorClient() {
       updateNpcItem(roomId, selectedNpcId, {
         name: npcName.trim() || "NPC",
         prompt: npcPrompt.trim(),
+        stats: normalizeGatekeeperStats(npcStats),
         standeeType: selectedTileId,
         walletAddress: npcWalletAddress.trim() || undefined,
         bribeAmountSol:
@@ -641,20 +662,22 @@ export default function AdminEditorClient() {
     setUploadError(null);
     setUploadSuccess(null);
     try {
-      const dims = await readImageDimensions(file);
+      const dims = await readTextureDimensions(file);
       const err = validateTextureDimensions(dims.width, dims.height);
       if (err) {
         setUploadError(err);
         return;
       }
       setPendingFile(file);
-      setPendingTileName(file.name.replace(/\.png$/i, ""));
+      setPendingTileName(file.name.replace(/\.(png|svg)$/i, ""));
       if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
       setPendingPreviewUrl(URL.createObjectURL(file));
       setPixelWidth(clampTexturePx(dims.width));
       setPixelHeight(clampTexturePx(dims.height));
-    } catch {
-      setUploadError("Could not read PNG dimensions.");
+    } catch (err) {
+      setUploadError(
+        err instanceof Error ? err.message : "Could not read image dimensions.",
+      );
     }
   };
 
@@ -689,15 +712,22 @@ export default function AdminEditorClient() {
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100">
       <div className="relative flex-1">
-        <header className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/80 px-4 py-2 backdrop-blur">
-          <div>
-            <h1 className="text-sm font-semibold">Room Editor</h1>
-            <p className="text-xs text-zinc-500">
-              {roomId}
-              {painting ? " · Saving…" : ""}
-            </p>
+        <header className="absolute left-0 right-0 top-0 z-10 flex items-start justify-between gap-3 border-b border-zinc-800 bg-zinc-950/80 px-4 py-2 backdrop-blur">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center gap-2">
+              <h1 className="text-sm font-semibold">Floor Editor</h1>
+              {painting ? (
+                <span className="text-[10px] text-zinc-500">Saving…</span>
+              ) : null}
+            </div>
+            <FloorManager
+              currentRoomId={roomId}
+              currentTitle={room?.title}
+              rooms={roomList}
+              roomsLoading={roomListLoading}
+            />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3 pt-0.5">
             <span className="hidden text-[10px] text-zinc-500 sm:inline">
               Left-click paint · Right-drag orbit
             </span>
@@ -707,7 +737,7 @@ export default function AdminEditorClient() {
               disabled={resetting || !room}
               className="rounded border border-red-900/60 px-2 py-1 text-[11px] text-red-400 hover:bg-red-950/50 disabled:opacity-50"
             >
-              {resetting ? "Resetting…" : "Reset room"}
+              {resetting ? "Resetting…" : "Reset floor"}
             </button>
             <Link
               href={`/play/${roomId}`}
@@ -857,6 +887,7 @@ export default function AdminEditorClient() {
             painting={painting}
             npcName={npcName}
             npcPrompt={npcPrompt}
+            npcStats={npcStats}
             npcWalletAddress={npcWalletAddress}
             npcBribeAmountSol={npcBribeAmountSol}
             portalTarget={portalTarget}
@@ -874,11 +905,14 @@ export default function AdminEditorClient() {
             onSelectStandee={(id) => selectItem(id)}
             onNpcNameChange={setNpcName}
             onNpcPromptChange={setNpcPrompt}
+            onNpcStatChange={handleNpcStatChange}
             onNpcBribeAmountSolChange={setNpcBribeAmountSol}
             onSelectAgentWallet={handleSelectAgentWallet}
             onPortalTargetChange={setPortalTarget}
             onPortalSpawnXChange={setPortalSpawnX}
             onPortalSpawnZChange={setPortalSpawnZ}
+            roomList={roomList}
+            currentRoomId={roomId}
             onSelectNpc={handleNpcSelect}
             onSelectPortal={handlePortalSelect}
             onRemoveNpc={(id) =>
@@ -1085,7 +1119,10 @@ export default function AdminEditorClient() {
                   src={selectedTile.textureUrl}
                   alt={selectedTile.name}
                   className="h-16 w-full object-contain"
-                  style={{ imageRendering: "pixelated" }}
+                  style={{
+                    imageRendering:
+                      selectedTile.format === "svg" ? "auto" : "pixelated",
+                  }}
                 />
               </>
             )}
@@ -1164,7 +1201,10 @@ export default function AdminEditorClient() {
                       src={tile.textureUrl}
                       alt={tile.name}
                       className="mb-1 h-12 w-full object-contain"
-                      style={{ imageRendering: "pixelated" }}
+                      style={{
+                        imageRendering:
+                          tile.format === "svg" ? "auto" : "pixelated",
+                      }}
                     />
                   ) : (
                     <div className="mb-1 flex h-12 items-center justify-center bg-zinc-700 text-[10px]">
@@ -1189,14 +1229,14 @@ export default function AdminEditorClient() {
           </h2>
           <input
             type="file"
-            accept="image/png"
+            accept="image/png,image/svg+xml,.png,.svg"
             disabled={uploading}
             onChange={(e) => void handleFileSelect(e.target.files?.[0])}
             className="w-full text-xs"
           />
           <p className="text-[10px] text-zinc-500">
-            PNG only. Max {MAX_TEXTURE_PX}×{MAX_TEXTURE_PX}px. 64px = 1 tile
-            unit.
+            PNG or SVG. Display size max {MAX_TEXTURE_PX}×{MAX_TEXTURE_PX}px
+            (64px = 1 tile unit). Vectors use smooth filtering in the room.
           </p>
 
           {pendingFile && (
@@ -1209,7 +1249,12 @@ export default function AdminEditorClient() {
                     src={pendingPreviewUrl}
                     alt="Upload preview"
                     className="mx-auto h-24 w-full object-contain"
-                    style={{ imageRendering: "pixelated" }}
+                    style={{
+                      imageRendering:
+                        pendingFile && isSvgFile(pendingFile)
+                          ? "auto"
+                          : "pixelated",
+                    }}
                   />
                 </div>
               )}

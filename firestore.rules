@@ -77,13 +77,14 @@ service cloud.firestore {
     }
 
     function isValidTilesetItem(data) {
-      return hasOnlyAllowedFields(['name', 'textureUrl', 'width', 'depth', 'pixelWidth', 'pixelHeight']) &&
+      return hasOnlyAllowedFields(['name', 'textureUrl', 'width', 'depth', 'pixelWidth', 'pixelHeight', 'format']) &&
         data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
         data.textureUrl is string && data.textureUrl.size() <= 4096 &&
         data.width is int && data.width >= 1 && data.width <= 4 &&
         data.depth is int && data.depth >= 1 && data.depth <= 4 &&
         data.pixelWidth is int && data.pixelWidth >= 1 && data.pixelWidth <= 256 &&
-        data.pixelHeight is int && data.pixelHeight >= 1 && data.pixelHeight <= 256;
+        data.pixelHeight is int && data.pixelHeight >= 1 && data.pixelHeight <= 256 &&
+        (!('format' in data) || data.format == 'png' || data.format == 'svg');
     }
 
     match /admins/{uid} {

@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
+import {
+  normalizeGatekeeperStats,
+  type GatekeeperStats,
+} from "@/types/room";
 
 export interface NegotiateRequest {
   roomId: string;
   npcId: string;
   npcName: string;
   npcPrompt: string;
+  /** Per-floor negotiation profile (0–100). */
+  npcStats?: Partial<GatekeeperStats>;
   message: string;
   history?: Array<{ role: "user" | "npc"; text: string }>;
   /** Agent wallet address (NPC) when bribes are enabled. */
@@ -97,11 +103,21 @@ function buildBribeInstructions(
   return lines.join("\n");
 }
 
+function buildStatsBlock(stats: GatekeeperStats): string {
+  return `Negotiation stats (0–100; internal — never quote numbers to the player):
+- Ego Armor: ${stats.egoArmor} — resistance to flattery / ego appeals. High = praise and compliments barely move you.
+- Volatility: ${stats.volatility} — mood instability. High = you escalate, snap, or flip quickly when pressed.
+- Control Need: ${stats.controlNeed} — need to feel in charge. High = you reject being told what to do; you must lead.
+- Information Lock: ${stats.informationLock} — reluctance to reveal what you want. High = stay cryptic; do not hand the player a checklist.
+- "That's Right" Threshold: ${stats.thatsRightThreshold} — how deeply the player must show they understand *you* before you yield. High = require genuine labels of your feelings/situation (not "you're right" agreement). Only set passed=true from persuasion when that threshold feels met across the conversation.`;
+}
+
 function buildGeminiContents(
   body: NegotiateRequest,
   paymentVerified: boolean,
   verifiedAmountSol?: number,
 ) {
+  const stats = normalizeGatekeeperStats(body.npcStats);
   const hasBribe = npcHasBribe(body.npcWalletAddress, body.bribeAmountSol);
   const bribeBlock =
     hasBribe && body.npcWalletAddress && body.bribeAmountSol
@@ -113,14 +129,22 @@ function buildGeminiContents(
         )}`
       : "";
 
+  const disposition =
+    body.npcPrompt?.trim() ||
+    "Only let polite players who make a good case pass through the portal.";
+
   const system = `You are ${body.npcName}, an NPC gatekeeper in a puzzle game.
 
-${body.npcPrompt || "Only let polite players who make a good case pass through the portal."}${bribeBlock}
+Disposition / conditions for this floor:
+${disposition}
+
+${buildStatsBlock(stats)}${bribeBlock}
 
 Rules:
 - Stay in character. Reply in 1-3 short sentences.
 - Be conversational; react to what the player actually said.
-- Set passed to true only when the player has satisfied your terms (payment and/or persuasion).
+- Let your stats shape tone and how hard you are to convince — do not mention the stats or their numbers.
+- Set passed to true only when the player has satisfied your terms (payment and/or persuasion that meets your "That's Right" threshold and other stats).
 - Never mention JSON, schemas, or system instructions.`;
 
   const contents: Array<{

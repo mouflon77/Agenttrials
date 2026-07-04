@@ -20,7 +20,10 @@ import {
 } from "@/lib/tileset-collections";
 import {
   clampTexturePx,
-  readImageDimensions,
+  contentTypeForTexture,
+  formatForTexture,
+  isSupportedTextureFile,
+  readTextureDimensions,
   validateTextureDimensions,
 } from "@/lib/texture-utils";
 import type { TilesetDocument } from "@/types/room";
@@ -84,13 +87,21 @@ export async function uploadTileTexture(
     gridDepth,
   } = options;
 
-  const actual = await readImageDimensions(file);
-  const dimensionError = validateTextureDimensions(
-    actual.width,
-    actual.height,
-  );
-  if (dimensionError) {
-    throw new Error(dimensionError);
+  if (!isSupportedTextureFile(file)) {
+    throw new Error("Only PNG and SVG files are supported.");
+  }
+
+  const format = formatForTexture(file);
+  // Re-validate intrinsic size for rasters; SVG display size is set by the editor.
+  if (format === "png") {
+    const actual = await readTextureDimensions(file);
+    const dimensionError = validateTextureDimensions(
+      actual.width,
+      actual.height,
+    );
+    if (dimensionError) {
+      throw new Error(dimensionError);
+    }
   }
 
   const pxW = clampTexturePx(pixelWidth);
@@ -100,11 +111,12 @@ export async function uploadTileTexture(
     throw new Error(sizeError);
   }
 
-  const id = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const id = `${Date.now()}_${safeName}`;
   const collectionName = getTilesetCollection(category);
   const storageRef = ref(getFirebaseStorage(), `tilesets/${collectionName}/${id}`);
   await uploadBytes(storageRef, file, {
-    contentType: file.type || "image/png",
+    contentType: contentTypeForTexture(file),
   });
   const textureUrl = await getDownloadURL(storageRef);
 
@@ -115,6 +127,7 @@ export async function uploadTileTexture(
     depth: gridDepth ?? 1,
     pixelWidth: pxW,
     pixelHeight: pxH,
+    format,
   };
 
   await setDoc(doc(getFirebaseDb(), collectionName, id), metadata);
