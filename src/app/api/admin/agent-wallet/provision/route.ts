@@ -24,14 +24,21 @@ export async function POST(request: Request) {
       guardianName: body.guardianName?.trim(),
     });
 
-    await adminSaveProvisionedWallet({
-      id: result.subOrganizationId,
-      displayName: body.displayName.trim(),
-      subOrganizationId: result.subOrganizationId,
-      solanaAddress: result.solanaAddress,
-      walletSecretId: result.walletSecretId,
-      createdBy: uid,
-    });
+    try {
+      await adminSaveProvisionedWallet({
+        id: result.subOrganizationId,
+        displayName: body.displayName.trim(),
+        subOrganizationId: result.subOrganizationId,
+        solanaAddress: result.solanaAddress,
+        walletSecretId: result.walletSecretId,
+        createdBy: uid,
+      });
+    } catch (saveError) {
+      const { mapProvisionError } = await import(
+        "@/lib/server/agent-wallet/errors"
+      );
+      throw new Error(mapProvisionError(saveError));
+    }
 
     return NextResponse.json(result);
   } catch (error) {

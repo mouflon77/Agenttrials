@@ -5,7 +5,24 @@ const nextConfig: NextConfig = {
     "agentwallets",
     "@google-cloud/secret-manager",
     "firebase-admin",
+    "@turnkey/sdk-server",
+    "@turnkey/crypto",
+    "@turnkey/solana",
+    "hpke-js",
+    "@hpke/core",
+    "@hpke/common",
+    "@hpke/chacha20poly1305",
+    "@hpke/dhkem-x25519",
+    "@hpke/dhkem-x448",
   ],
+  outputFileTracingIncludes: {
+    "/api/**/*": [
+      "./node_modules/@hpke/**/*",
+      "./node_modules/hpke-js/**/*",
+      "./node_modules/@turnkey/**/*",
+      "./packages/agentwallets/dist/**/*",
+    ],
+  },
   images: {
     remotePatterns: [
       {

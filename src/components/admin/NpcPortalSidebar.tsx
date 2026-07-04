@@ -47,6 +47,9 @@ interface NpcPortalSidebarProps {
   onRemovePortal: (id: string) => void;
   onSaveNpcFields: () => void;
   onSavePortalFields: () => void;
+  /** True when form differs from last saved gatekeeper snapshot. */
+  npcDirty?: boolean;
+  npcSaveSuccess?: string | null;
   /** Existing floors for portal target picker. */
   roomList?: RoomListItem[];
   currentRoomId?: string;
@@ -87,15 +90,21 @@ export function NpcPortalSidebar({
   onRemovePortal,
   onSaveNpcFields,
   onSavePortalFields,
+  npcDirty = false,
+  npcSaveSuccess = null,
   roomList = [],
   currentRoomId,
 }: NpcPortalSidebarProps) {
+  const selectedNpc = selectedNpcId
+    ? npcs.find((npc) => npc.id === selectedNpcId)
+    : undefined;
+
   if (mode === "npc") {
     return (
       <div className="mb-4 space-y-3">
         <p className="text-[10px] text-zinc-500">
-          Pick a standee sprite, set name, disposition, and negotiation stats,
-          then click the floor to place. Click an existing NPC to edit.
+          Set name, disposition, and stats, then click the floor to place a new
+          gatekeeper — or select one below / in the room to edit and save.
         </p>
         <label className="text-xs text-zinc-400">Standee sprite</label>
         <div className="grid max-h-32 grid-cols-3 gap-1 overflow-y-auto">
@@ -127,6 +136,24 @@ export function NpcPortalSidebar({
             </button>
           ))}
         </div>
+
+        {selectedNpc ? (
+          <div className="rounded-lg border border-sky-900/50 bg-sky-950/30 px-2 py-1.5">
+            <p className="text-[10px] font-medium text-sky-200">
+              Editing: {selectedNpc.name}
+            </p>
+            <p className="text-[10px] text-sky-300/70">
+              @ ({selectedNpc.x}, {selectedNpc.z})
+              {npcDirty ? " · unsaved changes" : ""}
+            </p>
+          </div>
+        ) : (
+          <p className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[10px] text-zinc-500">
+            No gatekeeper selected — pick one from the list below or click their
+            standee in the room.
+          </p>
+        )}
+
         <label className="text-xs text-zinc-400">Gatekeeper name</label>
         <input
           type="text"
@@ -176,6 +203,33 @@ export function NpcPortalSidebar({
             </div>
           ))}
         </div>
+
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            disabled={painting || !selectedNpcId}
+            onClick={onSaveNpcFields}
+            className="w-full rounded-lg bg-sky-600 py-2.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+          >
+            {painting
+              ? "Saving…"
+              : selectedNpcId
+                ? npcDirty
+                  ? "Save gatekeeper"
+                  : "Save gatekeeper (no changes)"
+                : "Select a gatekeeper to save"}
+          </button>
+          {npcSaveSuccess ? (
+            <p className="text-[10px] text-emerald-400">{npcSaveSuccess}</p>
+          ) : null}
+          {!selectedNpcId ? (
+            <p className="text-[10px] text-zinc-600">
+              New placements save when you click the floor. To update an existing
+              gatekeeper, select them first, then save.
+            </p>
+          ) : null}
+        </div>
+
         <p className="text-[10px] text-zinc-500">
           Optional bribe — create an agent wallet in{" "}
           <Link href="/admin/wallets" className="text-sky-400 hover:underline">
@@ -215,16 +269,6 @@ export function NpcPortalSidebar({
           className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
           placeholder="0.1"
         />
-        {selectedNpcId && (
-          <button
-            type="button"
-            disabled={painting}
-            onClick={onSaveNpcFields}
-            className="w-full rounded-lg border border-zinc-600 py-2 text-xs hover:bg-zinc-800 disabled:opacity-50"
-          >
-            Save NPC fields
-          </button>
-        )}
         {npcs.length > 0 && (
           <ul className="space-y-1 border-t border-zinc-800 pt-2">
             {npcs.map((npc) => (

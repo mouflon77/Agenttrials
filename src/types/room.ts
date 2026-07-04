@@ -1,6 +1,6 @@
 export const GRID_SIZE = 12;
 export const FLOOR_TILE_COUNT = GRID_SIZE * GRID_SIZE;
-export const WALL_HEIGHT = 2;
+export const WALL_HEIGHT = 3;
 export const MAX_TEXTURE_PX = 256;
 export const PIXELS_PER_TILE_UNIT = 64;
 

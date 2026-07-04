@@ -65,7 +65,7 @@ export function PlayHud({
         <p className="text-[10px] text-zinc-500">
           {chatOpen
             ? "Type below to reply"
-            : "WASD / arrows to move · scroll to zoom · click floor to walk"}
+            : "WASD / arrows to move · scroll to zoom"}
         </p>
       </div>
 

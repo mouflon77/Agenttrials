@@ -16,7 +16,6 @@ import { usePlayerMovement } from "@/hooks/usePlayerMovement";
 import { getHeadgearTexture } from "@/lib/firestore/headgear";
 import { getFootprintCells } from "@/components/room/Furniture";
 import { getTile, type TilesetRegistry } from "@/lib/tileset-collections";
-import { canOccupyCell } from "@/lib/movement";
 import {
   GRID_SIZE,
   isWithinTiles,
@@ -132,7 +131,6 @@ export function PlayScene({
   const {
     gridPosition,
     visualPosition,
-    moveToGrid,
     applyJoystick,
   } = usePlayerMovement(initialSpawn, blockedCells, room, inputPaused);
 
@@ -176,6 +174,31 @@ export function PlayScene({
     [room.portals, unlockedPortalIds, router],
   );
 
+  const prevGridRef = useRef(gridPosition);
+  useEffect(() => {
+    if (inputPaused) {
+      prevGridRef.current = gridPosition;
+      return;
+    }
+    const prev = prevGridRef.current;
+    const moved = prev.x !== gridPosition.x || prev.z !== gridPosition.z;
+    prevGridRef.current = gridPosition;
+    if (!moved) return;
+
+    const portal = room.portals.find(
+      (p) => p.x === gridPosition.x && p.z === gridPosition.z,
+    );
+    if (portal && unlockedPortalIds.has(portal.id)) {
+      enterPortal(portal.id);
+    }
+  }, [
+    gridPosition,
+    room.portals,
+    unlockedPortalIds,
+    enterPortal,
+    inputPaused,
+  ]);
+
   const handlePortalEnter = useCallback(
     (portalId: string) => {
       const portal = room.portals.find((p) => p.id === portalId);
@@ -188,19 +211,6 @@ export function PlayScene({
       }
     },
     [enterPortal, gridPosition, room.portals],
-  );
-
-  const handleFloorStep = useCallback(
-    (x: number, z: number) => {
-      if (inputPaused) return;
-      if (!canOccupyCell(x, z, room, blockedCells)) return;
-      moveToGrid(x, z);
-      const portal = room.portals.find((p) => p.x === x && p.z === z);
-      if (portal && unlockedPortalIds.has(portal.id)) {
-        enterPortal(portal.id);
-      }
-    },
-    [moveToGrid, room, blockedCells, unlockedPortalIds, enterPortal, inputPaused],
   );
 
   return (
@@ -218,7 +228,6 @@ export function PlayScene({
           playerDisplayName={displayName}
           unlockedPortalIds={unlockedPortalIds}
           onPortalEnter={handlePortalEnter}
-          onFloorStep={handleFloorStep}
         />
         {chatNpc && (
           <NpcScreenProjector

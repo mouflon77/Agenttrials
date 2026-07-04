@@ -90,6 +90,24 @@ const DEFAULT_TILE_SELECTION: Record<TileCategory, string> = {
 
 const SELECTION_STORAGE_KEY = "agenttrials-editor-selection";
 
+function npcFormSnapshot(input: {
+  name: string;
+  prompt: string;
+  stats: GatekeeperStats;
+  standeeType: string;
+  walletAddress: string;
+  bribeAmountSol: string;
+}): string {
+  return JSON.stringify({
+    name: input.name.trim(),
+    prompt: input.prompt.trim(),
+    stats: normalizeGatekeeperStats(input.stats),
+    standeeType: input.standeeType,
+    walletAddress: input.walletAddress.trim(),
+    bribeAmountSol: input.bribeAmountSol.trim(),
+  });
+}
+
 export default function AdminEditorClient() {
   const searchParams = useSearchParams();
   const roomId = searchParams.get("roomId") ?? "room_01";
@@ -149,6 +167,8 @@ export default function AdminEditorClient() {
   );
   const [npcWalletAddress, setNpcWalletAddress] = useState("");
   const [npcBribeAmountSol, setNpcBribeAmountSol] = useState("");
+  const [npcSavedSnapshot, setNpcSavedSnapshot] = useState<string | null>(null);
+  const [npcSaveSuccess, setNpcSaveSuccess] = useState<string | null>(null);
   const [selectedAgentWalletId, setSelectedAgentWalletId] = useState("");
   const { wallets: agentWallets, loading: agentWalletsLoading } =
     useAgentWallets();
@@ -318,6 +338,28 @@ export default function AdminEditorClient() {
     ? getTile(tilesets, paletteCategory, selectedTileId)
     : undefined;
 
+  const npcDirty = useMemo(() => {
+    if (!selectedNpcId) return false;
+    const current = npcFormSnapshot({
+      name: npcName,
+      prompt: npcPrompt,
+      stats: npcStats,
+      standeeType: selectedTileId,
+      walletAddress: npcWalletAddress,
+      bribeAmountSol: npcBribeAmountSol,
+    });
+    return npcSavedSnapshot !== null && current !== npcSavedSnapshot;
+  }, [
+    selectedNpcId,
+    npcName,
+    npcPrompt,
+    npcStats,
+    selectedTileId,
+    npcWalletAddress,
+    npcBribeAmountSol,
+    npcSavedSnapshot,
+  ]);
+
   useEffect(() => {
     setRenameValue(selectedTile?.name ?? "");
     setRenameError(null);
@@ -406,11 +448,23 @@ export default function AdminEditorClient() {
     }
 
     if (mode === "npc") {
-      const occupied = room.npcs.some((n) => n.x === x && n.z === z);
-      if (occupied) return;
-      void runPaint(() =>
-        addNpcItem(roomId, {
-          id: `npc_${Date.now()}`,
+      const existing = room.npcs.find((n) => n.x === x && n.z === z);
+      if (existing) {
+        handleNpcSelect(existing.id);
+        return;
+      }
+      const newId = `npc_${Date.now()}`;
+      const snapshot = npcFormSnapshot({
+        name: npcName,
+        prompt: npcPrompt,
+        stats: npcStats,
+        standeeType: selectedTileId,
+        walletAddress: npcWalletAddress,
+        bribeAmountSol: npcBribeAmountSol,
+      });
+      void runPaint(async () => {
+        await addNpcItem(roomId, {
+          id: newId,
           standeeType: selectedTileId,
           x,
           z,
@@ -423,8 +477,11 @@ export default function AdminEditorClient() {
           ...(Number(npcBribeAmountSol) > 0
             ? { bribeAmountSol: Number(npcBribeAmountSol) }
             : {}),
-        }),
-      );
+        });
+        setSelectedNpcId(newId);
+        setNpcSavedSnapshot(snapshot);
+        setNpcSaveSuccess("Gatekeeper placed and saved.");
+      });
       setNpcGhostPosition(null);
       return;
     }
@@ -511,27 +568,49 @@ export default function AdminEditorClient() {
     });
   };
 
+  const loadNpcForm = (npc: {
+    name: string;
+    prompt: string;
+    stats?: GatekeeperStats;
+    walletAddress?: string;
+    bribeAmountSol?: number;
+    standeeType: string;
+  }) => {
+    setNpcName(npc.name);
+    setNpcPrompt(npc.prompt);
+    setNpcStats(normalizeGatekeeperStats(npc.stats));
+    setNpcWalletAddress(npc.walletAddress ?? "");
+    setNpcBribeAmountSol(
+      npc.bribeAmountSol != null ? String(npc.bribeAmountSol) : "",
+    );
+    const matched = agentWallets.find(
+      (w) => w.solanaAddress === npc.walletAddress,
+    );
+    setSelectedAgentWalletId(matched?.id ?? "");
+    setSelectedByMode((prev) => ({ ...prev, standee: npc.standeeType }));
+    setNpcSavedSnapshot(
+      npcFormSnapshot({
+        name: npc.name,
+        prompt: npc.prompt,
+        stats: normalizeGatekeeperStats(npc.stats),
+        standeeType: npc.standeeType,
+        walletAddress: npc.walletAddress ?? "",
+        bribeAmountSol:
+          npc.bribeAmountSol != null ? String(npc.bribeAmountSol) : "",
+      }),
+    );
+    setNpcSaveSuccess(null);
+  };
+
   const handleNpcSelect = (id: string) => {
     if (!room) return;
     setSelectedNpcId(id);
     const npc = room.npcs.find((n) => n.id === id);
-    if (npc) {
-      setNpcName(npc.name);
-      setNpcPrompt(npc.prompt);
-      setNpcStats(normalizeGatekeeperStats(npc.stats));
-      setNpcWalletAddress(npc.walletAddress ?? "");
-      setNpcBribeAmountSol(
-        npc.bribeAmountSol != null ? String(npc.bribeAmountSol) : "",
-      );
-      const matched = agentWallets.find(
-        (w) => w.solanaAddress === npc.walletAddress,
-      );
-      setSelectedAgentWalletId(matched?.id ?? "");
-      setSelectedByMode((prev) => ({ ...prev, standee: npc.standeeType }));
-    }
+    if (npc) loadNpcForm(npc);
   };
 
   const handleNpcStatChange = (key: keyof GatekeeperStats, value: number) => {
+    setNpcSaveSuccess(null);
     setNpcStats((prev) => ({
       ...prev,
       [key]: clampGatekeeperStat(value, prev[key]),
@@ -550,6 +629,7 @@ export default function AdminEditorClient() {
   };
 
   const handleSelectAgentWallet = (walletId: string) => {
+    setNpcSaveSuccess(null);
     setSelectedAgentWalletId(walletId);
     const wallet = agentWallets.find((w) => w.id === walletId);
     setNpcWalletAddress(wallet?.solanaAddress ?? "");
@@ -558,8 +638,16 @@ export default function AdminEditorClient() {
   const handleSaveNpcFields = () => {
     if (!selectedNpcId) return;
     const bribeParsed = Number(npcBribeAmountSol);
-    void runPaint(() =>
-      updateNpcItem(roomId, selectedNpcId, {
+    const snapshot = npcFormSnapshot({
+      name: npcName,
+      prompt: npcPrompt,
+      stats: npcStats,
+      standeeType: selectedTileId,
+      walletAddress: npcWalletAddress,
+      bribeAmountSol: npcBribeAmountSol,
+    });
+    void runPaint(async () => {
+      await updateNpcItem(roomId, selectedNpcId, {
         name: npcName.trim() || "NPC",
         prompt: npcPrompt.trim(),
         stats: normalizeGatekeeperStats(npcStats),
@@ -569,8 +657,10 @@ export default function AdminEditorClient() {
           Number.isFinite(bribeParsed) && bribeParsed > 0
             ? bribeParsed
             : undefined,
-      }),
-    );
+      });
+      setNpcSavedSnapshot(snapshot);
+      setNpcSaveSuccess("Gatekeeper saved.");
+    });
   };
 
   const handleSavePortalFields = () => {
@@ -703,7 +793,10 @@ export default function AdminEditorClient() {
         `“${tile.name}” saved to ${EDITOR_TAB_LABELS[paletteCategory]} tileset`,
       );
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
+      const message =
+        err instanceof Error ? err.message : "Upload failed. Try again.";
+      setUploadError(message);
+      console.error("[tileset upload]", err);
     } finally {
       setUploading(false);
     }
@@ -903,10 +996,19 @@ export default function AdminEditorClient() {
             standeePalette={sortedTileEntries(tilesets.standee)}
             selectedStandeeId={selectedTileId}
             onSelectStandee={(id) => selectItem(id)}
-            onNpcNameChange={setNpcName}
-            onNpcPromptChange={setNpcPrompt}
+            onNpcNameChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcName(value);
+            }}
+            onNpcPromptChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcPrompt(value);
+            }}
             onNpcStatChange={handleNpcStatChange}
-            onNpcBribeAmountSolChange={setNpcBribeAmountSol}
+            onNpcBribeAmountSolChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcBribeAmountSol(value);
+            }}
             onSelectAgentWallet={handleSelectAgentWallet}
             onPortalTargetChange={setPortalTarget}
             onPortalSpawnXChange={setPortalSpawnX}
@@ -918,7 +1020,11 @@ export default function AdminEditorClient() {
             onRemoveNpc={(id) =>
               void runPaint(async () => {
                 await removeNpcItem(roomId, id);
-                if (selectedNpcId === id) setSelectedNpcId(null);
+                if (selectedNpcId === id) {
+                  setSelectedNpcId(null);
+                  setNpcSavedSnapshot(null);
+                  setNpcSaveSuccess(null);
+                }
               })
             }
             onRemovePortal={(id) =>
@@ -929,6 +1035,8 @@ export default function AdminEditorClient() {
             }
             onSaveNpcFields={handleSaveNpcFields}
             onSavePortalFields={handleSavePortalFields}
+            npcDirty={npcDirty}
+            npcSaveSuccess={npcSaveSuccess}
           />
         )}
 
@@ -1324,6 +1432,11 @@ export default function AdminEditorClient() {
                   </label>
                 </div>
               )}
+              {uploadError && (
+                <p className="rounded border border-red-900/60 bg-red-950/50 px-2 py-1.5 text-xs text-red-300">
+                  {uploadError}
+                </p>
+              )}
               <button
                 type="button"
                 disabled={uploading || !pendingTileName.trim()}
@@ -1346,7 +1459,7 @@ export default function AdminEditorClient() {
           {uploadSuccess && (
             <p className="text-xs text-emerald-400">{uploadSuccess}</p>
           )}
-          {uploadError && (
+          {uploadError && !pendingFile && (
             <p className="text-xs text-red-400">{uploadError}</p>
           )}
         </div>
