@@ -66,6 +66,30 @@ export interface UploadTileOptions {
   gridDepth?: number;
 }
 
+async function readUploadResponse(
+  response: Response,
+): Promise<{ id?: string; tile?: TilesetDocument; error?: string }> {
+  const text = await response.text();
+  if (!text) {
+    return { error: `Upload failed (${response.status}).` };
+  }
+
+  try {
+    return JSON.parse(text) as {
+      id?: string;
+      tile?: TilesetDocument;
+      error?: string;
+    };
+  } catch {
+    return {
+      error:
+        response.status >= 500
+          ? "Server error during upload. Try again in a moment."
+          : text.slice(0, 200),
+    };
+  }
+}
+
 /** Upload via server API — avoids browser Storage CORS on App Hosting. */
 export async function uploadTileTexture(
   options: UploadTileOptions,
@@ -75,7 +99,6 @@ export async function uploadTileTexture(
     throw new Error("You must be signed in to upload.");
   }
 
-  const token = await user.getIdToken();
   const form = new FormData();
   form.append("file", options.file);
   form.append("name", options.name);
@@ -89,17 +112,23 @@ export async function uploadTileTexture(
     form.append("gridDepth", String(options.gridDepth));
   }
 
-  const response = await fetch("/api/admin/tileset/upload", {
+  let token = await user.getIdToken(true);
+  let response = await fetch("/api/admin/tileset/upload", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
 
-  const payload = (await response.json()) as {
-    id?: string;
-    tile?: TilesetDocument;
-    error?: string;
-  };
+  if (response.status === 401) {
+    token = await user.getIdToken(true);
+    response = await fetch("/api/admin/tileset/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+  }
+
+  const payload = await readUploadResponse(response);
 
   if (!response.ok) {
     throw new Error(payload.error ?? "Upload failed. Try again.");

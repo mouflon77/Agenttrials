@@ -60,6 +60,10 @@ env:
       - RUNTIME
 
   # ── Server / wallet backend ──────────────────────────────────────────────
+  - variable: FIREBASE_PROJECT_ID
+    value: agenttrials-xo
+    availability:
+      - RUNTIME
   - variable: GCP_PROJECT_ID
     value: agenttrials-xo
     availability:

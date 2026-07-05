@@ -1,7 +1,20 @@
-import { initializeApp, getApps, cert, type App } from "firebase-admin/app";
+import { applicationDefault, cert, initializeApp, getApps, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
+
+function parseServiceAccountJson(
+  raw: string,
+): Record<string, string> | null {
+  try {
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    console.warn(
+      "FIREBASE_SERVICE_ACCOUNT_JSON is set but is not valid JSON — using Application Default Credentials instead.",
+    );
+    return null;
+  }
+}
 
 function initAdminApp(): App {
   const existing = getApps()[0];
@@ -11,17 +24,21 @@ function initAdminApp(): App {
     process.env.FIREBASE_PROJECT_ID ??
     process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   if (serviceAccountJson) {
-    return initializeApp({
-      credential: cert(JSON.parse(serviceAccountJson) as Record<string, string>),
-      projectId,
-      storageBucket: resolveStorageBucket(projectId),
-    });
+    const credentials = parseServiceAccountJson(serviceAccountJson);
+    if (credentials) {
+      return initializeApp({
+        credential: cert(credentials),
+        projectId,
+        storageBucket: resolveStorageBucket(projectId),
+      });
+    }
   }
 
   // App Hosting / Cloud Run — Application Default Credentials
   return initializeApp({
+    credential: applicationDefault(),
     projectId,
     storageBucket: resolveStorageBucket(projectId),
   });

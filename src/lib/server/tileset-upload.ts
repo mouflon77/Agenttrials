@@ -71,8 +71,8 @@ export async function serverUploadTileTexture(
   const metadata: TilesetDocument = {
     name,
     textureUrl,
-    width: gridWidth ?? (category === "furniture" ? 2 : 1),
-    depth: gridDepth ?? 1,
+    width: Math.round(gridWidth ?? (category === "furniture" ? 2 : 1)),
+    depth: Math.round(gridDepth ?? 1),
     pixelWidth: pxW,
     pixelHeight: pxH,
     ...(isSvg ? { format: "svg" as const } : {}),
