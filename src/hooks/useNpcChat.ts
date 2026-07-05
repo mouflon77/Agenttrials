@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { subscribeToNegotiationChat } from "@/lib/firestore/negotiation-chat";
 import type { NpcItem } from "@/types/room";
 import { npcAcceptsBribes } from "@/types/room";
 
@@ -20,32 +22,67 @@ function greetingFor(npc: NpcItem): ChatLine {
   };
 }
 
+function linesFromStored(
+  messages: Array<{ role: "user" | "npc"; text: string }>,
+  npc: NpcItem,
+): ChatLine[] {
+  if (messages.length === 0) return [greetingFor(npc)];
+  return messages.map((m) => ({ role: m.role, text: m.text }));
+}
+
 export function useNpcChat(
   roomId: string,
   npc: NpcItem | null,
+  userId: string | null | undefined,
   onPassed: (npcId: string) => void,
 ) {
   const [input, setInput] = useState("");
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [sending, setSending] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const bribeTxRef = useRef<{
     signature: string;
     playerWallet: string;
   } | null>(null);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
-    if (npc) {
-      setLines([greetingFor(npc)]);
-      setInput("");
-      setSending(false);
-      bribeTxRef.current = null;
-    } else {
+    sendingRef.current = sending;
+  }, [sending]);
+
+  useEffect(() => {
+    if (!npc) {
       setLines([]);
       setInput("");
       setSending(false);
+      setHistoryLoading(false);
       bribeTxRef.current = null;
+      return;
     }
-  }, [npc?.id]);
+
+    if (!userId) {
+      setLines([greetingFor(npc)]);
+      setInput("");
+      setSending(false);
+      setHistoryLoading(false);
+      bribeTxRef.current = null;
+      return;
+    }
+
+    setHistoryLoading(true);
+    setInput("");
+    setSending(false);
+    bribeTxRef.current = null;
+
+    const unsub = subscribeToNegotiationChat(userId, roomId, npc.id, (chat) => {
+      setHistoryLoading(false);
+      if (sendingRef.current) return;
+      setLines(linesFromStored(chat?.messages ?? [], npc));
+      if (chat?.passed) onPassed(npc.id);
+    });
+
+    return () => unsub;
+  }, [npc?.id, roomId, userId, onPassed, npc]);
 
   const registerBribePayment = useCallback(
     (txSignature: string, playerWallet: string) => {
@@ -55,9 +92,12 @@ export function useNpcChat(
   );
 
   const send = useCallback(async () => {
-    if (!npc) return;
+    if (!npc || !userId) return;
     const message = input.trim();
     if (!message || sending) return;
+
+    const user = getFirebaseAuth().currentUser;
+    if (!user) return;
 
     setInput("");
     setSending(true);
@@ -75,9 +115,13 @@ export function useNpcChat(
     const bribeTx = bribeTxRef.current;
 
     try {
+      const token = await user.getIdToken(true);
       const res = await fetch("/api/negotiate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           roomId,
           npcId: npc.id,
@@ -114,6 +158,8 @@ export function useNpcChat(
         reply = data.reply.trim();
       } else if (!res.ok && data.error === "Invalid request") {
         reply = "Could not send that message. Try closing and reopening chat.";
+      } else if (!res.ok && data.error?.includes("token")) {
+        reply = "Session expired — sign out and sign in again.";
       } else if (!res.ok) {
         reply =
           "The server had trouble replying (this is a technical error). Try again.";
@@ -142,7 +188,7 @@ export function useNpcChat(
     } finally {
       setSending(false);
     }
-  }, [npc, input, sending, roomId, onPassed]);
+  }, [npc, userId, input, sending, roomId, onPassed]);
 
   const npcLines = lines.filter((line) => line.role === "npc");
   const userLines = lines.filter((line) => line.role === "user");
@@ -153,7 +199,7 @@ export function useNpcChat(
     lines,
     npcLines,
     userLines,
-    sending,
+    sending: sending || historyLoading,
     send,
     registerBribePayment,
   };

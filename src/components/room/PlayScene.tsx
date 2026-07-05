@@ -126,7 +126,7 @@ export function PlayScene({
     sending: chatSending,
     send: sendChat,
     registerBribePayment,
-  } = useNpcChat(roomId, chatNpc, handleNpcPassed);
+  } = useNpcChat(roomId, chatNpc, user?.uid, handleNpcPassed);
 
   const {
     gridPosition,

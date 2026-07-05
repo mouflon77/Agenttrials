@@ -114,6 +114,11 @@ service cloud.firestore {
       allow create: if isOwner(userId) && uidUnchanged() && isValidUser(request.resource.data);
       allow update: if isOwner(userId) && uidUnchanged() && createdAtUnchanged() && isValidUser(request.resource.data);
       allow delete: if false;
+
+      match /negotiationChats/{chatId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
     }
 
     match /rooms/{roomId} {

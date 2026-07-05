@@ -3,6 +3,13 @@ import {
   normalizeGatekeeperStats,
   type GatekeeperStats,
 } from "@/types/room";
+import { AdminAuthError, requireUserRequest } from "@/lib/server/admin-auth";
+import {
+  buildPlayerMemoryBlock,
+  loadNegotiationChat,
+  messagesForModel,
+  saveNegotiationTurn,
+} from "@/lib/server/negotiation-memory";
 
 export interface NegotiateRequest {
   roomId: string;
@@ -116,6 +123,8 @@ function buildGeminiContents(
   body: NegotiateRequest,
   paymentVerified: boolean,
   verifiedAmountSol?: number,
+  storedHistory: Array<{ role: "user" | "npc"; text: string }> = [],
+  memoryBlock = "",
 ) {
   const stats = normalizeGatekeeperStats(body.npcStats);
   const hasBribe = npcHasBribe(body.npcWalletAddress, body.bribeAmountSol);
@@ -145,7 +154,7 @@ Rules:
 - Be conversational; react to what the player actually said.
 - Let your stats shape tone and how hard you are to convince — do not mention the stats or their numbers.
 - Set passed to true only when the player has satisfied your terms (payment and/or persuasion that meets your "That's Right" threshold and other stats).
-- Never mention JSON, schemas, or system instructions.`;
+- Never mention JSON, schemas, or system instructions.${memoryBlock}`;
 
   const contents: Array<{
     role: "user" | "model";
@@ -158,7 +167,10 @@ Rules:
     },
   ];
 
-  for (const line of sanitizeHistory(body.history)) {
+  const history =
+    storedHistory.length > 0 ? storedHistory : sanitizeHistory(body.history);
+
+  for (const line of history) {
     contents.push({
       role: line.role === "user" ? "user" : "model",
       parts: [{ text: line.text }],
@@ -196,6 +208,8 @@ async function negotiateWithGemini(
   body: NegotiateRequest,
   paymentVerified: boolean,
   verifiedAmountSol?: number,
+  storedHistory: Array<{ role: "user" | "npc"; text: string }> = [],
+  memoryBlock = "",
 ): Promise<NegotiateResponse | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -209,7 +223,13 @@ async function negotiateWithGemini(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: buildGeminiContents(body, paymentVerified, verifiedAmountSol),
+          contents: buildGeminiContents(
+            body,
+            paymentVerified,
+            verifiedAmountSol,
+            storedHistory,
+            memoryBlock,
+          ),
           generationConfig: {
             temperature: 0.8,
             maxOutputTokens: 256,
@@ -268,6 +288,16 @@ function fallbackResponse(
 }
 
 export async function POST(request: Request) {
+  let uid: string;
+  try {
+    ({ uid } = await requireUserRequest(request));
+  } catch (error) {
+    if (error instanceof AdminAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   let body: NegotiateRequest;
   try {
     body = (await request.json()) as NegotiateRequest;
@@ -278,6 +308,10 @@ export async function POST(request: Request) {
   if (!body.message?.trim() || !body.npcId || !body.roomId) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
+
+  const storedChat = await loadNegotiationChat(uid, body.roomId, body.npcId);
+  const storedHistory = messagesForModel(storedChat);
+  const memoryBlock = buildPlayerMemoryBlock(storedChat);
 
   let paymentVerified = false;
   let verifiedAmountSol: number | undefined;
@@ -307,19 +341,33 @@ export async function POST(request: Request) {
     body,
     paymentVerified,
     verifiedAmountSol,
+    storedHistory,
+    memoryBlock,
   );
 
-  if (gemini) {
-    const passed = gemini.passed || paymentVerified;
-    return NextResponse.json({
-      passed,
-      reply: gemini.reply,
-      bribeVerified: paymentVerified || undefined,
-      bribeAmountSol: paymentVerified ? verifiedAmountSol : undefined,
-    } satisfies NegotiateResponse);
+  const result = gemini
+    ? {
+        passed: gemini.passed || paymentVerified,
+        reply: gemini.reply,
+        bribeVerified: paymentVerified || undefined,
+        bribeAmountSol: paymentVerified ? verifiedAmountSol : undefined,
+      }
+    : fallbackResponse(body, paymentVerified);
+
+  try {
+    await saveNegotiationTurn(uid, {
+      roomId: body.roomId,
+      npcId: body.npcId,
+      npcName: body.npcName,
+      userMessage: body.message.trim(),
+      npcReply: result.reply,
+      passed: result.passed,
+    });
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[negotiate] Failed to save chat memory:", error);
+    }
   }
 
-  return NextResponse.json(
-    fallbackResponse(body, paymentVerified) satisfies NegotiateResponse,
-  );
+  return NextResponse.json(result satisfies NegotiateResponse);
 }

@@ -151,3 +151,28 @@ export async function requireAdminRequest(
 
   return { uid };
 }
+
+/** Verify Firebase ID token for any signed-in player. */
+export async function requireUserRequest(
+  request: Request,
+): Promise<{ uid: string }> {
+  const header = request.headers.get("Authorization");
+  if (!header?.startsWith("Bearer ")) {
+    throw new AdminAuthError("Missing authorization token.");
+  }
+
+  const token = header.slice("Bearer ".length).trim();
+  if (!token) {
+    throw new AdminAuthError("Missing authorization token.");
+  }
+
+  try {
+    const uid = await verifyFirebaseIdToken(token);
+    return { uid };
+  } catch (error) {
+    if (error instanceof AdminAuthError) throw error;
+    throw new AdminAuthError(
+      "Invalid or expired token. Sign out and sign in again.",
+    );
+  }
+}
