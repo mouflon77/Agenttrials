@@ -323,22 +323,30 @@ export function npcAcceptsBribes(npc: NpcItem): boolean {
 
 export function normalizeNpcs(items: NpcItem[]): NpcItem[] {
   return items.map((item, index) => {
-    const walletAddress = item.walletAddress?.trim() || undefined;
-    const bribeAmountSol =
-      typeof item.bribeAmountSol === "number" && item.bribeAmountSol > 0
-        ? item.bribeAmountSol
-        : undefined;
-
-    return {
-      ...item,
+    const normalized: NpcItem = {
       id: npcItemId(item, index),
+      standeeType: item.standeeType ?? "default_standee",
+      x: item.x,
+      z: item.z,
       name: item.name ?? "NPC",
       prompt: item.prompt ?? "",
       stats: normalizeGatekeeperStats(item.stats),
-      standeeType: item.standeeType ?? "default_standee",
-      walletAddress,
-      bribeAmountSol,
     };
+
+    const walletAddress = item.walletAddress?.trim();
+    if (walletAddress) {
+      normalized.walletAddress = walletAddress;
+    }
+
+    const bribeAmountSol =
+      typeof item.bribeAmountSol === "number" && item.bribeAmountSol > 0
+        ? item.bribeAmountSol
+        : null;
+    if (bribeAmountSol != null) {
+      normalized.bribeAmountSol = bribeAmountSol;
+    }
+
+    return normalized;
   });
 }
 

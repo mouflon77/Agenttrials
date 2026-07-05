@@ -647,16 +647,16 @@ export default function AdminEditorClient() {
       bribeAmountSol: npcBribeAmountSol,
     });
     void runPaint(async () => {
+      const wallet = npcWalletAddress.trim();
       await updateNpcItem(roomId, selectedNpcId, {
         name: npcName.trim() || "NPC",
         prompt: npcPrompt.trim(),
         stats: normalizeGatekeeperStats(npcStats),
         standeeType: selectedTileId,
-        walletAddress: npcWalletAddress.trim() || undefined,
-        bribeAmountSol:
-          Number.isFinite(bribeParsed) && bribeParsed > 0
-            ? bribeParsed
-            : undefined,
+        ...(wallet ? { walletAddress: wallet } : {}),
+        ...(Number.isFinite(bribeParsed) && bribeParsed > 0
+          ? { bribeAmountSol: bribeParsed }
+          : {}),
       });
       setNpcSavedSnapshot(snapshot);
       setNpcSaveSuccess("Gatekeeper saved.");

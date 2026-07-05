@@ -282,9 +282,15 @@ export async function updateNpcItem(
   const room = await readRoom(roomId);
   if (!room) return;
   const ref = doc(getFirebaseDb(), "rooms", roomId);
-  const npcs = room.npcs.map((item) =>
-    item.id === itemId ? { ...item, ...patch } : item,
-  );
+  const npcs = room.npcs.map((item) => {
+    if (item.id !== itemId) return item;
+    const merged = { ...item, ...patch };
+    if (!patch.walletAddress) delete merged.walletAddress;
+    if (patch.bribeAmountSol == null || patch.bribeAmountSol <= 0) {
+      delete merged.bribeAmountSol;
+    }
+    return merged;
+  });
   await updateDoc(ref, { npcs: normalizeNpcs(npcs) });
 }
 
