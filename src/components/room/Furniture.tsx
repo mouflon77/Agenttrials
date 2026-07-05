@@ -2,12 +2,27 @@
 
 import { useMemo } from "react";
 import { getTile, type TilesetRegistry } from "@/lib/tileset-collections";
+import { isSvgTextureUrl } from "@/lib/texture-utils";
 import { Tile } from "@/components/room/Tile";
-import { DEFAULT_FURNITURE_COLOR, type FurnitureItem } from "@/types/room";
+import { StandeePlane } from "@/components/room/StandeePlane";
+import {
+  DEFAULT_FURNITURE_COLOR,
+  planeSizeFromPixels,
+  type FurnitureItem,
+  type TilesetDocument,
+} from "@/types/room";
 
 const FURNITURE_FLOOR_Y = 0.015;
 const FURNITURE_LIFT = 0.002;
 const FURNITURE_BOX_HEIGHT = 0.3;
+/** Face pre-drawn axonometric art toward the fixed isometric camera (offset 6,12,6). */
+const ISO_SPRITE_Y = Math.PI / 4;
+
+function isUprightFurniture(def: TilesetDocument | undefined): boolean {
+  if (!def?.textureUrl) return false;
+  if (def.format === "svg") return true;
+  return isSvgTextureUrl(def.textureUrl);
+}
 
 interface FurnitureProps {
   item: FurnitureItem;
@@ -29,6 +44,10 @@ export function FurnitureMesh({
   const depth = def?.depth ?? 1;
   const textureUrl = def?.textureUrl || undefined;
   const color = item.color ?? DEFAULT_FURNITURE_COLOR;
+  const upright = isUprightFurniture(def);
+  const pixelWidth = def?.pixelWidth ?? 64;
+  const pixelHeight = def?.pixelHeight ?? 64;
+  const spriteSize = planeSizeFromPixels(pixelWidth, pixelHeight);
 
   const rotationY = useMemo(() => (item.rotation * Math.PI) / 180, [item.rotation]);
 
@@ -39,13 +58,34 @@ export function FurnitureMesh({
 
   return (
     <group position={[centerX, FURNITURE_FLOOR_Y, centerZ]} rotation={[0, rotationY, 0]}>
-      {textureUrl && (
+      {textureUrl && upright ? (
+        <group
+          rotation={[0, ISO_SPRITE_Y, 0]}
+          onPointerDown={(event) => {
+            if (!pickable || event.button !== 0) return;
+            event.stopPropagation();
+            handleSelect();
+          }}
+        >
+          <StandeePlane
+            textureUrl={textureUrl}
+            textureFormat={def?.format}
+            pixelWidth={pixelWidth}
+            pixelHeight={pixelHeight}
+            width={spriteSize.width}
+            height={spriteSize.height}
+            color="#ffffff"
+            selected={selected}
+          />
+        </group>
+      ) : null}
+      {textureUrl && !upright ? (
         <Tile
           textureUrl={textureUrl}
           textureFormat={def?.format}
           color="#ffffff"
-          pixelWidth={def?.pixelWidth ?? 64}
-          pixelHeight={def?.pixelHeight ?? 64}
+          pixelWidth={pixelWidth}
+          pixelHeight={pixelHeight}
           planeWidth={width}
           planeHeight={depth}
           position={[0, FURNITURE_LIFT, 0]}
@@ -53,7 +93,7 @@ export function FurnitureMesh({
           pickable={pickable}
           onPaint={handleSelect}
         />
-      )}
+      ) : null}
       {!textureUrl && (
       <mesh
         position={[0, FURNITURE_BOX_HEIGHT / 2, 0]}
@@ -73,7 +113,7 @@ export function FurnitureMesh({
         />
       </mesh>
       )}
-      {textureUrl && selected && (
+      {textureUrl && selected && !upright && (
         <mesh
           position={[0, FURNITURE_BOX_HEIGHT / 2, 0]}
           raycast={() => null}
@@ -115,6 +155,10 @@ export function FurnitureGhost({
   const width = def?.width ?? 1;
   const depth = def?.depth ?? 1;
   const textureUrl = def?.textureUrl || undefined;
+  const upright = isUprightFurniture(def);
+  const pixelWidth = def?.pixelWidth ?? 64;
+  const pixelHeight = def?.pixelHeight ?? 64;
+  const spriteSize = planeSizeFromPixels(pixelWidth, pixelHeight);
   const rotationY = (rotation * Math.PI) / 180;
   const centerX = x + width / 2;
   const centerZ = z + depth / 2;
@@ -122,13 +166,27 @@ export function FurnitureGhost({
 
   return (
     <group position={[centerX, FURNITURE_FLOOR_Y, centerZ]} rotation={[0, rotationY, 0]}>
-      {textureUrl && (
+      {textureUrl && upright ? (
+        <group rotation={[0, ISO_SPRITE_Y, 0]}>
+          <StandeePlane
+            textureUrl={textureUrl}
+            textureFormat={def?.format}
+            pixelWidth={pixelWidth}
+            pixelHeight={pixelHeight}
+            width={spriteSize.width}
+            height={spriteSize.height}
+            color="#ffffff"
+            opacity={0.55}
+          />
+        </group>
+      ) : null}
+      {textureUrl && !upright ? (
         <Tile
           textureUrl={textureUrl}
           textureFormat={def?.format}
           color="#ffffff"
-          pixelWidth={def?.pixelWidth ?? 64}
-          pixelHeight={def?.pixelHeight ?? 64}
+          pixelWidth={pixelWidth}
+          pixelHeight={pixelHeight}
           planeWidth={width}
           planeHeight={depth}
           position={[0, FURNITURE_LIFT, 0]}
@@ -136,7 +194,7 @@ export function FurnitureGhost({
           pickable={false}
           opacity={0.55}
         />
-      )}
+      ) : null}
       {!textureUrl && (
       <mesh position={[0, FURNITURE_BOX_HEIGHT / 2, 0]} raycast={() => null}>
         <boxGeometry args={[width * 0.92, FURNITURE_BOX_HEIGHT, depth * 0.92]} />
