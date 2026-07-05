@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import {
   getCachedPixelTexture,
-  loadPixelTexture,
+  loadTileTexture,
+  type LoadTileTextureOptions,
 } from "@/lib/tile-textures";
 import { planeSizeFromPixels } from "@/types/room";
 
 interface TileProps {
   textureUrl?: string;
+  textureFormat?: "png" | "svg";
   color: string;
   position: [number, number, number];
   rotation?: [number, number, number];
@@ -95,6 +97,9 @@ function ColoredPlane({
 
 function TexturedPlane({
   textureUrl,
+  textureFormat,
+  pixelWidth = 64,
+  pixelHeight = 64,
   position,
   rotation = [0, 0, 0],
   width,
@@ -108,6 +113,9 @@ function TexturedPlane({
   opacity = 1,
 }: {
   textureUrl: string;
+  textureFormat?: "png" | "svg";
+  pixelWidth?: number;
+  pixelHeight?: number;
   position: [number, number, number];
   rotation?: [number, number, number];
   width: number;
@@ -122,21 +130,28 @@ function TexturedPlane({
 }) {
   const displayUrl =
     highlighted && previewTextureUrl ? previewTextureUrl : textureUrl;
-  const [texture, setTexture] = useState(() => getCachedPixelTexture(displayUrl) ?? null);
+  const loadOptions: LoadTileTextureOptions = {
+    format: textureFormat,
+    pixelWidth,
+    pixelHeight,
+  };
+  const [texture, setTexture] = useState(
+    () => getCachedPixelTexture(displayUrl, loadOptions) ?? null,
+  );
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
 
-    const cached = getCachedPixelTexture(displayUrl);
+    const cached = getCachedPixelTexture(displayUrl, loadOptions);
     if (cached) {
       setTexture(cached);
       return;
     }
 
     setTexture(null);
-    void loadPixelTexture(displayUrl)
+    void loadTileTexture(displayUrl, loadOptions)
       .then((loaded) => {
         if (!cancelled) setTexture(loaded);
       })
@@ -147,7 +162,7 @@ function TexturedPlane({
     return () => {
       cancelled = true;
     };
-  }, [displayUrl]);
+  }, [displayUrl, textureFormat, pixelWidth, pixelHeight]);
 
   const displayOpacity =
     highlighted && previewTextureUrl ? 0.75 : opacity;
@@ -192,6 +207,7 @@ function TexturedPlane({
 
 export function Tile({
   textureUrl,
+  textureFormat,
   color,
   position,
   rotation = [0, 0, 0],
@@ -215,6 +231,9 @@ export function Tile({
     return (
       <TexturedPlane
         textureUrl={textureUrl}
+        textureFormat={textureFormat}
+        pixelWidth={pixelWidth}
+        pixelHeight={pixelHeight}
         position={position}
         rotation={rotation}
         width={width}
@@ -234,6 +253,9 @@ export function Tile({
     return (
       <TexturedPlane
         textureUrl={previewTextureUrl}
+        textureFormat={textureFormat}
+        pixelWidth={pixelWidth}
+        pixelHeight={pixelHeight}
         position={position}
         rotation={rotation}
         width={width}

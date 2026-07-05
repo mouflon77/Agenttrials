@@ -53,6 +53,9 @@ export function StandeeMesh({
         >
           <StandeePlane
             textureUrl={textureUrl}
+            textureFormat={def?.format}
+            pixelWidth={pixelWidth}
+            pixelHeight={pixelHeight}
             width={width}
             height={height}
             color={textureUrl ? "#ffffff" : "#7c6a5a"}

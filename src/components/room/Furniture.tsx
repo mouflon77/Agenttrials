@@ -42,6 +42,7 @@ export function FurnitureMesh({
       {textureUrl && (
         <Tile
           textureUrl={textureUrl}
+          textureFormat={def?.format}
           color="#ffffff"
           pixelWidth={def?.pixelWidth ?? 64}
           pixelHeight={def?.pixelHeight ?? 64}
@@ -53,6 +54,7 @@ export function FurnitureMesh({
           onPaint={handleSelect}
         />
       )}
+      {!textureUrl && (
       <mesh
         position={[0, FURNITURE_BOX_HEIGHT / 2, 0]}
         raycast={pickable ? undefined : () => null}
@@ -65,13 +67,21 @@ export function FurnitureMesh({
         <boxGeometry args={[width * 0.92, FURNITURE_BOX_HEIGHT, depth * 0.92]} />
         <meshStandardMaterial
           color={color}
-          transparent={Boolean(textureUrl)}
-          opacity={textureUrl ? 0.35 : 1}
           emissive={selected ? "#4488ff" : "#000000"}
           emissiveIntensity={selected ? 0.45 : 0}
           flatShading
         />
       </mesh>
+      )}
+      {textureUrl && selected && (
+        <mesh
+          position={[0, FURNITURE_BOX_HEIGHT / 2, 0]}
+          raycast={() => null}
+        >
+          <boxGeometry args={[width * 0.92, FURNITURE_BOX_HEIGHT, depth * 0.92]} />
+          <meshBasicMaterial color="#60a5fa" wireframe transparent opacity={0.5} />
+        </mesh>
+      )}
       {selected && (
         <mesh position={[0, FURNITURE_LIFT + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[width * 1.04, depth * 1.04]} />
@@ -115,6 +125,7 @@ export function FurnitureGhost({
       {textureUrl && (
         <Tile
           textureUrl={textureUrl}
+          textureFormat={def?.format}
           color="#ffffff"
           pixelWidth={def?.pixelWidth ?? 64}
           pixelHeight={def?.pixelHeight ?? 64}
@@ -126,14 +137,12 @@ export function FurnitureGhost({
           opacity={0.55}
         />
       )}
+      {!textureUrl && (
       <mesh position={[0, FURNITURE_BOX_HEIGHT / 2, 0]} raycast={() => null}>
         <boxGeometry args={[width * 0.92, FURNITURE_BOX_HEIGHT, depth * 0.92]} />
-        <meshStandardMaterial
-          color={color}
-          transparent
-          opacity={textureUrl ? 0.25 : 0.45}
-        />
+        <meshStandardMaterial color={color} transparent opacity={0.45} />
       </mesh>
+      )}
       <mesh position={[0, FURNITURE_LIFT + 0.002, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[width * 1.02, depth * 1.02]} />
         <meshBasicMaterial color={tint} transparent opacity={0.4} />

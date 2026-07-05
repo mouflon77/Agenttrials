@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import {
   getCachedPixelTexture,
-  loadPixelTexture,
+  loadTileTexture,
 } from "@/lib/tile-textures";
 
 interface StandeePlaneProps {
   textureUrl?: string;
+  textureFormat?: "png" | "svg";
+  pixelWidth?: number;
+  pixelHeight?: number;
   width: number;
   height: number;
   color: string;
@@ -17,14 +20,22 @@ interface StandeePlaneProps {
 
 export function StandeePlane({
   textureUrl,
+  textureFormat,
+  pixelWidth = 64,
+  pixelHeight = 128,
   width,
   height,
   color,
   selected = false,
   opacity = 1,
 }: StandeePlaneProps) {
+  const loadOptions = {
+    format: textureFormat,
+    pixelWidth,
+    pixelHeight,
+  };
   const [texture, setTexture] = useState(
-    textureUrl ? getCachedPixelTexture(textureUrl) : null,
+    textureUrl ? getCachedPixelTexture(textureUrl, loadOptions) : null,
   );
 
   useEffect(() => {
@@ -32,19 +43,19 @@ export function StandeePlane({
       setTexture(null);
       return;
     }
-    const cached = getCachedPixelTexture(textureUrl);
+    const cached = getCachedPixelTexture(textureUrl, loadOptions);
     if (cached) {
       setTexture(cached);
       return;
     }
     let cancelled = false;
-    void loadPixelTexture(textureUrl).then((tex) => {
+    void loadTileTexture(textureUrl, loadOptions).then((tex) => {
       if (!cancelled) setTexture(tex);
     });
     return () => {
       cancelled = true;
     };
-  }, [textureUrl]);
+  }, [textureUrl, textureFormat, pixelWidth, pixelHeight]);
 
   return (
     <mesh position={[0, height / 2, 0]}>
