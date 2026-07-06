@@ -8,6 +8,7 @@ import {
   WALL_SIDES,
   floorIndex,
   getWallTransform,
+  isActiveOverlay,
   wallKey,
 } from "@/types/room";
 import type { AvatarConfig } from "@/types/avatar";
@@ -39,6 +40,8 @@ interface RoomProps {
   } | null;
   onFloorClick?: (x: number, z: number) => void;
   onWallClick?: (side: WallSide, along: number, height: number) => void;
+  onWallErase?: (side: WallSide, along: number, height: number) => void;
+  wallEraserActive?: boolean;
   onFloorHover?: (x: number, z: number) => void;
   onFloorHoverEnd?: () => void;
   onWallHover?: (side: WallSide, along: number, height: number) => void;
@@ -77,10 +80,6 @@ function resolveTile(
   };
 }
 
-function isActiveOverlay(tileId: string | undefined): boolean {
-  return Boolean(tileId && tileId !== "none" && tileId !== "");
-}
-
 function isWallHighlighted(
   brushPreview: RoomProps["brushPreview"],
   category: "wall" | "door" | "window",
@@ -109,6 +108,8 @@ export function Room({
   brushPreview,
   onFloorClick,
   onWallClick,
+  onWallErase,
+  wallEraserActive = false,
   onFloorHover,
   onFloorHoverEnd,
   onWallHover,
@@ -216,9 +217,13 @@ export function Room({
       ? onWallClick
       : undefined;
 
-  const brushResolved = brushPreview
-    ? resolveTile(tilesets, brushPreview.category, brushPreview.tileId)
-    : null;
+  const wallEraseHandler =
+    editorMode === "door" || editorMode === "window" ? onWallErase : undefined;
+
+  const brushResolved =
+    brushPreview && !wallEraserActive
+      ? resolveTile(tilesets, brushPreview.category, brushPreview.tileId)
+      : null;
 
   const floorCellTextures = useMemo(() => {
     const map = new Map<
@@ -286,6 +291,10 @@ export function Room({
             along,
             height,
           );
+          const wallCellHandlers = {
+            onPaint: () => wallClickHandler?.(side, along, height),
+            onErase: () => wallEraseHandler?.(side, along, height),
+          };
 
           return (
             <Tile
@@ -296,11 +305,13 @@ export function Room({
               planeWidth={1}
               planeHeight={1}
               highlighted={highlighted}
+              highlightEraser={wallEraserActive && highlighted}
               previewTextureUrl={brushResolved?.textureUrl}
               color={room.wallColor}
               position={position}
               rotation={rotation}
-              onPaint={() => wallClickHandler?.(side, along, height)}
+              onPaint={wallCellHandlers.onPaint}
+              onErase={wallCellHandlers.onErase}
               onPointerOver={() => onWallHover?.(side, along, height)}
               onPointerOut={() => onWallHoverEnd?.()}
             />
@@ -323,6 +334,9 @@ export function Room({
             along,
             height,
           );
+          const overlayPickable =
+            (kind === "door" && editorMode === "door") ||
+            (kind === "window" && editorMode === "window");
 
           return (
             <Tile
@@ -333,11 +347,14 @@ export function Room({
               planeWidth={1}
               planeHeight={1}
               highlighted={highlighted}
+              highlightEraser={wallEraserActive && highlighted}
               previewTextureUrl={brushResolved?.textureUrl}
               color="#ffffff"
               position={inset}
               rotation={rotation}
-              pickable={false}
+              pickable={overlayPickable}
+              onPaint={() => wallClickHandler?.(side, along, height)}
+              onErase={() => wallEraseHandler?.(side, along, height)}
             />
           );
         })}

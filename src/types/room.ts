@@ -225,6 +225,24 @@ export function wallKey(side: WallSide, along: number, height: number): string {
   return `${side}_${along}_${height}`;
 }
 
+export function isActiveOverlay(tileId: string | undefined): boolean {
+  return Boolean(tileId && tileId !== "none" && tileId !== "");
+}
+
+export function formatWallKeyLabel(key: string): string {
+  const [side, along, height] = key.split("_");
+  if (!side || along === undefined || height === undefined) return key;
+  return `${side} · ${along}, h${height}`;
+}
+
+export function listActiveOverlayEntries(
+  grid: Record<string, string>,
+): Array<{ key: string; tileId: string }> {
+  return Object.entries(grid)
+    .filter(([, tileId]) => isActiveOverlay(tileId))
+    .map(([key, tileId]) => ({ key, tileId }));
+}
+
 export function planeSizeFromPixels(
   pixelWidth: number,
   pixelHeight: number,

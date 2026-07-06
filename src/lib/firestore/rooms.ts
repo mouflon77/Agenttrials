@@ -187,6 +187,19 @@ export async function updateWindowTile(
   await updateDoc(ref, { [`windowGrid.${key}`]: tileId });
 }
 
+export async function removeDoorTile(roomId: string, key: string): Promise<void> {
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, { [`doorGrid.${key}`]: deleteField() });
+}
+
+export async function removeWindowTile(
+  roomId: string,
+  key: string,
+): Promise<void> {
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, { [`windowGrid.${key}`]: deleteField() });
+}
+
 export async function updateRoomColors(
   roomId: string,
   colors: Partial<Pick<RoomDocument, "floorColor" | "wallColor">>,

@@ -28,6 +28,8 @@ interface EditorSceneProps {
   } | null;
   onFloorClick: (x: number, z: number) => void;
   onWallClick: (side: WallSide, along: number, height: number) => void;
+  onWallErase: (side: WallSide, along: number, height: number) => void;
+  wallEraserActive: boolean;
   onFloorHover: (x: number, z: number) => void;
   onFloorHoverEnd: () => void;
   onWallHover: (side: WallSide, along: number, height: number) => void;
@@ -55,6 +57,8 @@ export function EditorScene({
   brushPreview,
   onFloorClick,
   onWallClick,
+  onWallErase,
+  wallEraserActive,
   onFloorHover,
   onFloorHoverEnd,
   onWallHover,
@@ -83,6 +87,8 @@ export function EditorScene({
         brushPreview={brushPreview}
         onFloorClick={onFloorClick}
         onWallClick={onWallClick}
+        onWallErase={onWallErase}
+        wallEraserActive={wallEraserActive}
         onFloorHover={onFloorHover}
         onFloorHoverEnd={onFloorHoverEnd}
         onWallHover={onWallHover}

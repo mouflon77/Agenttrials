@@ -20,9 +20,11 @@ interface TileProps {
   planeWidth?: number;
   planeHeight?: number;
   highlighted?: boolean;
+  highlightEraser?: boolean;
   previewTextureUrl?: string;
   pickable?: boolean;
   onPaint?: () => void;
+  onErase?: () => void;
   onPointerOver?: () => void;
   onPointerOut?: () => void;
   opacity?: number;
@@ -42,9 +44,14 @@ function paintOnPointerDown(
   event: ThreeEvent<PointerEvent>,
   pickable: boolean,
   onPaint?: () => void,
+  onErase?: () => void,
 ) {
   if (!pickable || event.button !== 0) return;
   event.stopPropagation();
+  if (event.shiftKey && onErase) {
+    onErase();
+    return;
+  }
   onPaint?.();
 }
 
@@ -55,8 +62,10 @@ function ColoredPlane({
   width,
   height,
   highlighted = false,
+  highlightEraser = false,
   pickable = true,
   onPaint,
+  onErase,
   onPointerOver,
   onPointerOut,
   opacity = 1,
@@ -67,13 +76,19 @@ function ColoredPlane({
   width: number;
   height: number;
   highlighted?: boolean;
+  highlightEraser?: boolean;
   pickable?: boolean;
   onPaint?: () => void;
+  onErase?: () => void;
   onPointerOver?: () => void;
   onPointerOut?: () => void;
   opacity?: number;
 }) {
-  const displayColor = highlighted ? "#e8f4ff" : color;
+  const displayColor = highlighted
+    ? highlightEraser
+      ? "#ffd6d6"
+      : "#e8f4ff"
+    : color;
   const displayOpacity = highlighted ? Math.max(opacity, 0.55) : opacity;
 
   return (
@@ -81,7 +96,9 @@ function ColoredPlane({
       position={position}
       rotation={rotation}
       raycast={pickable ? undefined : () => null}
-      onPointerDown={(event) => paintOnPointerDown(event, pickable, onPaint)}
+      onPointerDown={(event) =>
+        paintOnPointerDown(event, pickable, onPaint, onErase)
+      }
       onPointerOver={(event) => handlePointer(event, pickable, onPointerOver)}
       onPointerOut={(event) => handlePointer(event, pickable, onPointerOut)}
     >
@@ -105,9 +122,11 @@ function TexturedPlane({
   width,
   height,
   highlighted = false,
+  highlightEraser = false,
   previewTextureUrl,
   pickable = true,
   onPaint,
+  onErase,
   onPointerOver,
   onPointerOut,
   opacity = 1,
@@ -121,9 +140,11 @@ function TexturedPlane({
   width: number;
   height: number;
   highlighted?: boolean;
+  highlightEraser?: boolean;
   previewTextureUrl?: string;
   pickable?: boolean;
   onPaint?: () => void;
+  onErase?: () => void;
   onPointerOver?: () => void;
   onPointerOut?: () => void;
   opacity?: number;
@@ -176,8 +197,10 @@ function TexturedPlane({
         width={width}
         height={height}
         highlighted={highlighted}
+        highlightEraser={highlightEraser}
         pickable={pickable}
         onPaint={onPaint}
+        onErase={onErase}
         onPointerOver={onPointerOver}
         onPointerOut={onPointerOut}
         opacity={displayOpacity}
@@ -190,14 +213,18 @@ function TexturedPlane({
       position={position}
       rotation={rotation}
       raycast={pickable ? undefined : () => null}
-      onPointerDown={(event) => paintOnPointerDown(event, pickable, onPaint)}
+      onPointerDown={(event) =>
+        paintOnPointerDown(event, pickable, onPaint, onErase)
+      }
       onPointerOver={(event) => handlePointer(event, pickable, onPointerOver)}
       onPointerOut={(event) => handlePointer(event, pickable, onPointerOut)}
     >
       <planeGeometry args={[width, height]} />
       <meshBasicMaterial
         map={texture}
-        color={highlighted ? "#d9ecff" : "#ffffff"}
+        color={
+          highlighted ? (highlightEraser ? "#ffb3b3" : "#d9ecff") : "#ffffff"
+        }
         transparent={displayOpacity < 1}
         opacity={displayOpacity}
       />
@@ -216,9 +243,11 @@ export function Tile({
   planeWidth,
   planeHeight,
   highlighted = false,
+  highlightEraser = false,
   previewTextureUrl,
   pickable = true,
   onPaint,
+  onErase,
   onPointerOver,
   onPointerOut,
   opacity = 1,
@@ -239,9 +268,11 @@ export function Tile({
         width={width}
         height={height}
         highlighted={highlighted}
+        highlightEraser={highlightEraser}
         previewTextureUrl={previewTextureUrl}
         pickable={pickable}
         onPaint={onPaint}
+        onErase={onErase}
         onPointerOver={onPointerOver}
         onPointerOut={onPointerOut}
         opacity={opacity}
@@ -261,8 +292,10 @@ export function Tile({
         width={width}
         height={height}
         highlighted
+        highlightEraser={highlightEraser}
         pickable={pickable}
         onPaint={onPaint}
+        onErase={onErase}
         onPointerOver={onPointerOver}
         onPointerOut={onPointerOut}
         opacity={0.75}
@@ -278,8 +311,10 @@ export function Tile({
       width={width}
       height={height}
       highlighted={highlighted}
+      highlightEraser={highlightEraser}
       pickable={pickable}
       onPaint={onPaint}
+      onErase={onErase}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
       opacity={opacity}

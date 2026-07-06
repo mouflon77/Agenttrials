@@ -15,8 +15,10 @@ import {
   ensureRoom,
   fillFloorTiles,
   removeFurnitureItem,
+  removeDoorTile,
   removeNpcItem,
   removePortalItem,
+  removeWindowTile,
   resetRoom,
   migrateFurnitureIds,
   updateDoorTile,
@@ -59,7 +61,9 @@ import {
   MAX_TEXTURE_PX,
   clampGatekeeperStat,
   floorIndex,
+  formatWallKeyLabel,
   isGridEdge,
+  listActiveOverlayEntries,
   normalizeGatekeeperStats,
   wallKey,
   type EditorMode,
@@ -137,6 +141,7 @@ export default function AdminEditorClient() {
     height: number;
   } | null>(null);
   const [painting, setPainting] = useState(false);
+  const [overlayEraser, setOverlayEraser] = useState(false);
   const [paintError, setPaintError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -307,6 +312,17 @@ export default function AdminEditorClient() {
     return isGridEdge(portalGhostPosition.x, portalGhostPosition.z);
   }, [portalGhostPosition, mode]);
 
+  const placedDoors = useMemo(
+    () => (room ? listActiveOverlayEntries(room.doorGrid) : []),
+    [room],
+  );
+  const placedWindows = useMemo(
+    () => (room ? listActiveOverlayEntries(room.windowGrid) : []),
+    [room],
+  );
+  const overlayEraserActive =
+    overlayEraser && (mode === "door" || mode === "window");
+
   const brushPreview = useMemo(() => {
     if (!isTilesetEditorMode(mode) || mode === "furniture") return null;
     if (mode === "floor" && hoverFloor) {
@@ -322,12 +338,12 @@ export default function AdminEditorClient() {
     ) {
       return {
         category: mode,
-        tileId: selectedTileId,
+        tileId: overlayEraserActive ? "__eraser__" : selectedTileId,
         wallCell: hoverWall,
       };
     }
     return null;
-  }, [mode, hoverFloor, hoverWall, selectedTileId]);
+  }, [mode, hoverFloor, hoverWall, selectedTileId, overlayEraserActive]);
 
   const paletteItems = useMemo(
     () =>
@@ -368,6 +384,7 @@ export default function AdminEditorClient() {
 
   const selectItem = (id: string) => {
     if (!paletteCategory) return;
+    setOverlayEraser(false);
     setSelectedByMode((prev) => ({ ...prev, [paletteCategory]: id }));
     if (mode === "furniture") {
       setSelectedFurnitureId(null);
@@ -409,6 +426,19 @@ export default function AdminEditorClient() {
     if (lastPaintedWallRef.current === stamp) return;
     lastPaintedWallRef.current = stamp;
     void runPaint(paint);
+  };
+
+  const eraseOverlayAt = (side: WallSide, along: number, height: number) => {
+    const key = wallKey(side, along, height);
+    if (mode === "door") {
+      paintWallCell(side, along, height, `erase-${key}`, () =>
+        removeDoorTile(roomId, key),
+      );
+    } else if (mode === "window") {
+      paintWallCell(side, along, height, `erase-${key}`, () =>
+        removeWindowTile(roomId, key),
+      );
+    }
   };
 
   const handleFloorClick = (x: number, z: number) => {
@@ -517,14 +547,35 @@ export default function AdminEditorClient() {
         updateWallTile(roomId, key, selectedTileId),
       );
     } else if (mode === "door") {
+      if (overlayEraserActive) {
+        eraseOverlayAt(side, along, height);
+        return;
+      }
       paintWallCell(side, along, height, key, () =>
         updateDoorTile(roomId, key, selectedTileId),
       );
     } else if (mode === "window") {
+      if (overlayEraserActive) {
+        eraseOverlayAt(side, along, height);
+        return;
+      }
       paintWallCell(side, along, height, key, () =>
         updateWindowTile(roomId, key, selectedTileId),
       );
     }
+  };
+
+  const handleWallErase = (side: WallSide, along: number, height: number) => {
+    if (mode !== "door" && mode !== "window") return;
+    eraseOverlayAt(side, along, height);
+  };
+
+  const handleRemoveOverlay = (kind: "door" | "window", key: string) => {
+    void runPaint(() =>
+      kind === "door"
+        ? removeDoorTile(roomId, key)
+        : removeWindowTile(roomId, key),
+    );
   };
 
   const handleFillFloor = () => {
@@ -873,6 +924,8 @@ export default function AdminEditorClient() {
             brushPreview={brushPreview}
             onFloorClick={handleFloorClick}
             onWallClick={handleWallClick}
+            onWallErase={handleWallErase}
+            wallEraserActive={overlayEraserActive}
             onFloorHover={(x, z) => {
               if (mode === "furniture") {
                 setGhostPosition({ x, z });
@@ -926,6 +979,7 @@ export default function AdminEditorClient() {
               type="button"
               onClick={() => {
                 setMode(tabMode);
+                setOverlayEraser(false);
                 setGhostPosition(null);
                 setNpcGhostPosition(null);
                 setPortalGhostPosition(null);
@@ -952,6 +1006,7 @@ export default function AdminEditorClient() {
               type="button"
               onClick={() => {
                 setMode(tabMode);
+                setOverlayEraser(false);
                 setGhostPosition(null);
                 setNpcGhostPosition(null);
                 setPortalGhostPosition(null);
@@ -1197,9 +1252,66 @@ export default function AdminEditorClient() {
 
         {(mode === "wall" || mode === "door" || mode === "window") && (
           <p className="mb-3 text-[10px] text-zinc-500">
-            Click any wall tile to paint. Spin the camera to reach all four
-            walls.
+            {mode === "wall"
+              ? "Click any wall tile to paint. Spin the camera to reach all four walls."
+              : overlayEraserActive
+                ? "Eraser on — click or drag wall tiles to remove. Shift+click also removes."
+                : "Click wall tiles to place. Use Eraser or Shift+click to remove."}
           </p>
+        )}
+
+        {(mode === "door" || mode === "window") && (
+          <div className="mb-4 space-y-3">
+            <button
+              type="button"
+              onClick={() => setOverlayEraser((prev) => !prev)}
+              className={`w-full rounded-lg border py-2 text-xs ${
+                overlayEraserActive
+                  ? "border-red-400 bg-red-950/40 text-red-200"
+                  : "border-zinc-600 text-zinc-300 hover:bg-zinc-800"
+              }`}
+            >
+              {overlayEraserActive ? "Eraser on — click to remove" : "Eraser"}
+            </button>
+
+            {(() => {
+              const placements = mode === "door" ? placedDoors : placedWindows;
+              if (placements.length === 0) return null;
+              return (
+                <div className="space-y-2 border-t border-zinc-800 pt-3">
+                  <p className="text-xs text-zinc-400">
+                    Placed {mode === "door" ? "doors" : "windows"} (
+                    {placements.length})
+                  </p>
+                  <ul className="max-h-40 space-y-1 overflow-y-auto">
+                    {placements.map(({ key, tileId }) => {
+                      const def = getTile(tilesets, mode, tileId);
+                      const label = def?.name ?? tileId;
+                      return (
+                        <li
+                          key={key}
+                          className="flex items-center gap-2 rounded bg-zinc-900 px-2 py-1.5 text-[11px] text-zinc-300"
+                        >
+                          <span className="min-w-0 flex-1 truncate">
+                            {label} · {formatWallKeyLabel(key)}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={painting}
+                            title={`Remove ${mode}`}
+                            onClick={() => handleRemoveOverlay(mode, key)}
+                            className="shrink-0 rounded px-1.5 py-0.5 text-red-400 hover:bg-red-950/50 disabled:opacity-50"
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })()}
+          </div>
         )}
 
         {mode === "floor" && (
