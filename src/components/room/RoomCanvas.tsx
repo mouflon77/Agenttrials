@@ -1,10 +1,16 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
 import type { ReactNode } from "react";
-import { MOUSE } from "three";
-import { PlayCameraRig } from "@/components/room/PlayCameraRig";
+import {
+  IsometricEditorControls,
+  PlayCameraRig,
+} from "@/components/room/PlayCameraRig";
+import {
+  getIsometricOffset,
+  ISO_CAMERA_DISTANCE,
+  setIsometricCameraPosition,
+} from "@/lib/isometric-camera";
 
 interface RoomCanvasProps {
   children: ReactNode;
@@ -16,6 +22,7 @@ interface RoomCanvasProps {
 }
 
 const ROOM_CENTER = { x: 6, z: 6 };
+const ISO_OFFSET = getIsometricOffset(ISO_CAMERA_DISTANCE);
 
 export function RoomCanvas({
   children,
@@ -35,39 +42,36 @@ export function RoomCanvas({
       camera={{
         zoom: playMode ? 48 : 42,
         position: [
-          initialTarget.x + 6,
-          12,
-          initialTarget.z + 6,
+          initialTarget.x + ISO_OFFSET.x,
+          ISO_OFFSET.y,
+          initialTarget.z + ISO_OFFSET.z,
         ],
         near: 0.1,
         far: 200,
       }}
       onCreated={({ camera }) => {
-        camera.lookAt(initialTarget.x, 0, initialTarget.z);
+        setIsometricCameraPosition(
+          camera,
+          initialTarget.x,
+          initialTarget.z,
+        );
       }}
     >
       <ambientLight intensity={1} />
-      <directionalLight position={[8, 14, 6]} intensity={0.35} />
+      <directionalLight
+        position={[
+          ISO_OFFSET.x * 0.7,
+          ISO_OFFSET.y * 0.9,
+          ISO_OFFSET.z * 0.7,
+        ]}
+        intensity={0.35}
+      />
       {children}
       {enableControls &&
         (playMode ? (
           <PlayCameraRig follow={followPosition} />
         ) : (
-          <OrbitControls
-            enablePan={!paintMode}
-            enableZoom
-            minZoom={30}
-            maxZoom={80}
-            target={[ROOM_CENTER.x, 0, ROOM_CENTER.z]}
-            mouseButtons={
-              paintMode
-                ? {
-                    MIDDLE: MOUSE.DOLLY,
-                    RIGHT: MOUSE.ROTATE,
-                  }
-                : undefined
-            }
-          />
+          <IsometricEditorControls paintMode={paintMode} />
         ))}
     </Canvas>
   );

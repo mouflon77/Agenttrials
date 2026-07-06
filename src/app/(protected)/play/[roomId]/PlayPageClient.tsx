@@ -10,7 +10,7 @@ import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useRoom } from "@/hooks/useRoom";
 import { useTileset } from "@/hooks/useTileset";
 import { ensureRoom } from "@/lib/firestore/rooms";
-import { GRID_SIZE } from "@/types/room";
+import { GRID_SIZE, resolvePlayerSpawn } from "@/types/room";
 
 const PlayScene = dynamic(
   () => import("@/components/room/PlayScene").then((m) => m.PlayScene),
@@ -39,18 +39,17 @@ export default function PlayPageClient({
   const initialSpawn = useMemo(() => {
     const sx = Number(searchParams.get("spawnX"));
     const sz = Number(searchParams.get("spawnZ"));
-    if (
+    const urlSpawn =
       Number.isFinite(sx) &&
       Number.isFinite(sz) &&
       sx >= 0 &&
       sz >= 0 &&
       sx < GRID_SIZE &&
       sz < GRID_SIZE
-    ) {
-      return { x: sx, z: sz };
-    }
-    return { x: 6, z: 6 };
-  }, [searchParams]);
+        ? { x: sx, z: sz }
+        : null;
+    return resolvePlayerSpawn(room, urlSpawn);
+  }, [searchParams, room]);
 
   useEffect(() => {
     if (!loading && !room) {
@@ -67,7 +66,7 @@ export default function PlayPageClient({
               Room: {roomId}
             </h1>
             <p className="hidden text-xs text-zinc-500 sm:block">
-              Axonometric play view
+              Isometric play view
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">

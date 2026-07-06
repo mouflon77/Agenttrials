@@ -20,6 +20,8 @@ interface EditorSceneProps {
   npcGhostPosition: { x: number; z: number } | null;
   portalGhostPosition: { x: number; z: number } | null;
   portalGhostValid: boolean;
+  playerSpawn: { x: number; z: number };
+  spawnGhostPosition: { x: number; z: number } | null;
   brushPreview: {
     category: "floor" | "wall" | "door" | "window";
     tileId: string;
@@ -54,6 +56,8 @@ export function EditorScene({
   npcGhostPosition,
   portalGhostPosition,
   portalGhostValid,
+  playerSpawn,
+  spawnGhostPosition,
   brushPreview,
   onFloorClick,
   onWallClick,
@@ -84,6 +88,8 @@ export function EditorScene({
         npcGhostPosition={npcGhostPosition}
         portalGhostPosition={portalGhostPosition}
         portalGhostValid={portalGhostValid}
+        playerSpawn={playerSpawn}
+        spawnGhostPosition={spawnGhostPosition}
         brushPreview={brushPreview}
         onFloorClick={onFloorClick}
         onWallClick={onWallClick}

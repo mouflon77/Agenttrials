@@ -11,12 +11,11 @@ import {
   type FurnitureItem,
   type TilesetDocument,
 } from "@/types/room";
+import { ISO_SPRITE_Y } from "@/lib/isometric-camera";
 
 const FURNITURE_FLOOR_Y = 0.015;
 const FURNITURE_LIFT = 0.002;
 const FURNITURE_BOX_HEIGHT = 0.3;
-/** Face pre-drawn axonometric art toward the fixed isometric camera (offset 6,12,6). */
-const ISO_SPRITE_Y = Math.PI / 4;
 
 function isUprightFurniture(def: TilesetDocument | undefined): boolean {
   if (!def?.textureUrl) return false;

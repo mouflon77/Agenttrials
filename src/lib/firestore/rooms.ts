@@ -208,6 +208,15 @@ export async function updateRoomColors(
   await updateDoc(ref, colors);
 }
 
+export async function updatePlayerSpawn(
+  roomId: string,
+  x: number,
+  z: number,
+): Promise<void> {
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, { playerSpawnX: x, playerSpawnZ: z });
+}
+
 export async function addFurnitureItem(
   roomId: string,
   item: FurnitureItem,

@@ -26,6 +26,7 @@ import {
   updateFurnitureItem,
   updateNpcItem,
   updatePortalItem,
+  updatePlayerSpawn,
   updateRoomColors,
   updateWallTile,
   updateWindowTile,
@@ -185,6 +186,10 @@ export default function AdminEditorClient() {
     z: number;
   } | null>(null);
   const [portalGhostPosition, setPortalGhostPosition] = useState<{
+    x: number;
+    z: number;
+  } | null>(null);
+  const [spawnGhostPosition, setSpawnGhostPosition] = useState<{
     x: number;
     z: number;
   } | null>(null);
@@ -531,6 +536,12 @@ export default function AdminEditorClient() {
         }),
       );
       setPortalGhostPosition(null);
+      return;
+    }
+
+    if (mode === "spawn") {
+      void runPaint(() => updatePlayerSpawn(roomId, x, z));
+      setSpawnGhostPosition(null);
     }
   };
 
@@ -921,6 +932,11 @@ export default function AdminEditorClient() {
             npcGhostPosition={npcGhostPosition}
             portalGhostPosition={portalGhostPosition}
             portalGhostValid={portalGhostValid}
+            playerSpawn={{
+              x: room.playerSpawnX,
+              z: room.playerSpawnZ,
+            }}
+            spawnGhostPosition={spawnGhostPosition}
             brushPreview={brushPreview}
             onFloorClick={handleFloorClick}
             onWallClick={handleWallClick}
@@ -933,6 +949,8 @@ export default function AdminEditorClient() {
                 setNpcGhostPosition({ x, z });
               } else if (mode === "portal") {
                 setPortalGhostPosition({ x, z });
+              } else if (mode === "spawn") {
+                setSpawnGhostPosition({ x, z });
               } else if (mode === "floor") {
                 setHoverFloor({ x, z });
                 if (dragPaintingRef.current) {
@@ -947,6 +965,8 @@ export default function AdminEditorClient() {
                 setNpcGhostPosition(null);
               } else if (mode === "portal") {
                 setPortalGhostPosition(null);
+              } else if (mode === "spawn") {
+                setSpawnGhostPosition(null);
               } else if (mode === "floor") {
                 setHoverFloor(null);
               }
@@ -983,6 +1003,7 @@ export default function AdminEditorClient() {
                 setGhostPosition(null);
                 setNpcGhostPosition(null);
                 setPortalGhostPosition(null);
+                setSpawnGhostPosition(null);
                 setHoverFloor(null);
                 setHoverWall(null);
                 clearPendingUpload();
@@ -1010,6 +1031,7 @@ export default function AdminEditorClient() {
                 setGhostPosition(null);
                 setNpcGhostPosition(null);
                 setPortalGhostPosition(null);
+                setSpawnGhostPosition(null);
                 setHoverFloor(null);
                 setHoverWall(null);
                 clearPendingUpload();
@@ -1028,6 +1050,19 @@ export default function AdminEditorClient() {
             </button>
           ))}
         </div>
+
+        {room && mode === "spawn" && (
+          <div className="mb-4 space-y-2">
+            <p className="text-xs text-zinc-300">Player start</p>
+            <p className="text-[10px] text-zinc-500">
+              Hover the floor and click to set where players appear when they
+              enter this room. The blue marker shows the current start tile.
+            </p>
+            <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 font-mono text-[11px] text-zinc-300">
+              ({room.playerSpawnX}, {room.playerSpawnZ})
+            </p>
+          </div>
+        )}
 
         {room && (mode === "npc" || mode === "portal") && (
           <NpcPortalSidebar

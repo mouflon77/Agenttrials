@@ -10,7 +10,7 @@ export type WallSide = (typeof WALL_SIDES)[number];
 import type { TileCategory } from "@/lib/tileset-collections";
 
 export type { TileCategory };
-export type EditorMode = TileCategory | "npc" | "portal";
+export type EditorMode = TileCategory | "npc" | "portal" | "spawn";
 
 export interface PlayerPosition {
   x: number;
@@ -163,6 +163,9 @@ export interface RoomDocument {
   wallGrid: Record<string, string>;
   doorGrid: Record<string, string>;
   windowGrid: Record<string, string>;
+  /** Grid tile where the player appears when entering this room (no portal). */
+  playerSpawnX: number;
+  playerSpawnZ: number;
   furniture: FurnitureItem[];
   npcs: NpcItem[];
   portals: PortalItem[];
@@ -415,9 +418,38 @@ export function createDefaultRoom(title?: string): RoomDocument {
     wallGrid: createDefaultWallGrid(),
     doorGrid: createEmptyOverlayGrid(),
     windowGrid: createEmptyOverlayGrid(),
+    playerSpawnX: DEFAULT_PLAYER_SPAWN.x,
+    playerSpawnZ: DEFAULT_PLAYER_SPAWN.z,
     furniture: [],
     npcs: [],
     portals: [],
+  };
+}
+
+export const DEFAULT_PLAYER_SPAWN = { x: 6, z: 6 };
+
+function clampSpawnCoord(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(GRID_SIZE - 1, Math.max(0, Math.round(n)));
+}
+
+export function resolvePlayerSpawn(
+  room: Pick<RoomDocument, "playerSpawnX" | "playerSpawnZ"> | null | undefined,
+  urlSpawn?: { x: number; z: number } | null,
+): { x: number; z: number } {
+  if (
+    urlSpawn &&
+    urlSpawn.x >= 0 &&
+    urlSpawn.z >= 0 &&
+    urlSpawn.x < GRID_SIZE &&
+    urlSpawn.z < GRID_SIZE
+  ) {
+    return urlSpawn;
+  }
+  return {
+    x: clampSpawnCoord(room?.playerSpawnX, DEFAULT_PLAYER_SPAWN.x),
+    z: clampSpawnCoord(room?.playerSpawnZ, DEFAULT_PLAYER_SPAWN.z),
   };
 }
 
@@ -432,6 +464,8 @@ export function normalizeRoom(data: Partial<RoomDocument>): RoomDocument {
     wallGrid: { ...defaults.wallGrid, ...data.wallGrid },
     doorGrid: { ...defaults.doorGrid, ...data.doorGrid },
     windowGrid: { ...defaults.windowGrid, ...data.windowGrid },
+    playerSpawnX: clampSpawnCoord(data.playerSpawnX, defaults.playerSpawnX),
+    playerSpawnZ: clampSpawnCoord(data.playerSpawnZ, defaults.playerSpawnZ),
     furniture: normalizeFurniture(data.furniture ?? defaults.furniture),
     npcs: normalizeNpcs(data.npcs ?? defaults.npcs),
     portals: normalizePortals(data.portals ?? defaults.portals),

@@ -64,6 +64,8 @@ interface RoomProps {
   npcGhostPosition?: { x: number; z: number } | null;
   portalGhostPosition?: { x: number; z: number } | null;
   portalGhostValid?: boolean;
+  playerSpawn?: { x: number; z: number } | null;
+  spawnGhostPosition?: { x: number; z: number } | null;
 }
 
 function resolveTile(
@@ -132,6 +134,8 @@ export function Room({
   npcGhostPosition = null,
   portalGhostPosition = null,
   portalGhostValid = false,
+  playerSpawn = null,
+  spawnGhostPosition = null,
 }: RoomProps) {
   const floorTiles = useMemo(() => {
     const tiles = [];
@@ -432,6 +436,36 @@ export function Room({
                 transparent
                 opacity={0.55}
               />
+            </mesh>
+          </group>
+        )}
+
+        {!playMode && playerSpawn && (
+          <group position={[playerSpawn.x + 0.5, 0, playerSpawn.z + 0.5]}>
+            <mesh position={[0, 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.18, 0.32, 24]} />
+              <meshStandardMaterial
+                color="#38bdf8"
+                transparent
+                opacity={editorMode === "spawn" ? 0.95 : 0.65}
+              />
+            </mesh>
+            <mesh position={[0, 0.22, 0]}>
+              <coneGeometry args={[0.12, 0.28, 4]} />
+              <meshStandardMaterial color="#38bdf8" />
+            </mesh>
+          </group>
+        )}
+
+        {editorMode === "spawn" && spawnGhostPosition && (
+          <group position={[spawnGhostPosition.x + 0.5, 0, spawnGhostPosition.z + 0.5]}>
+            <mesh position={[0, 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.18, 0.32, 24]} />
+              <meshStandardMaterial color="#4ade80" transparent opacity={0.75} />
+            </mesh>
+            <mesh position={[0, 0.22, 0]}>
+              <coneGeometry args={[0.12, 0.28, 4]} />
+              <meshStandardMaterial color="#4ade80" transparent opacity={0.75} />
             </mesh>
           </group>
         )}
