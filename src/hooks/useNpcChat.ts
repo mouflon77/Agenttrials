@@ -31,6 +31,7 @@ function linesFromStored(
 }
 
 export function useNpcChat(
+  gameId: string | null | undefined,
   roomId: string,
   npc: NpcItem | null,
   userId: string | null | undefined,
@@ -60,7 +61,7 @@ export function useNpcChat(
       return;
     }
 
-    if (!userId) {
+    if (!userId || !gameId) {
       setLines([greetingFor(npc)]);
       setInput("");
       setSending(false);
@@ -74,15 +75,15 @@ export function useNpcChat(
     setSending(false);
     bribeTxRef.current = null;
 
-    const unsub = subscribeToNegotiationChat(userId, roomId, npc.id, (chat) => {
+    const unsub = subscribeToNegotiationChat(userId, gameId, roomId, npc.id, (chat) => {
       setHistoryLoading(false);
       if (sendingRef.current) return;
       setLines(linesFromStored(chat?.messages ?? [], npc));
       if (chat?.passed) onPassed(npc.id);
     });
 
-    return () => unsub;
-  }, [npc?.id, roomId, userId, onPassed, npc]);
+    return unsub;
+  }, [npc?.id, roomId, gameId, userId, onPassed, npc]);
 
   const registerBribePayment = useCallback(
     (txSignature: string, playerWallet: string) => {
@@ -92,7 +93,7 @@ export function useNpcChat(
   );
 
   const send = useCallback(async () => {
-    if (!npc || !userId) return;
+    if (!npc || !userId || !gameId) return;
     const message = input.trim();
     if (!message || sending) return;
 
@@ -123,6 +124,7 @@ export function useNpcChat(
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
+          gameId,
           roomId,
           npcId: npc.id,
           npcName: npc.name,
@@ -188,7 +190,7 @@ export function useNpcChat(
     } finally {
       setSending(false);
     }
-  }, [npc, userId, input, sending, roomId, onPassed]);
+  }, [npc, gameId, userId, input, sending, roomId, onPassed]);
 
   const npcLines = lines.filter((line) => line.role === "npc");
   const userLines = lines.filter((line) => line.role === "user");

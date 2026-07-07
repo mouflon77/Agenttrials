@@ -12,6 +12,7 @@ import {
 } from "@/lib/server/negotiation-memory";
 
 export interface NegotiateRequest {
+  gameId: string;
   roomId: string;
   npcId: string;
   npcName: string;
@@ -305,11 +306,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  if (!body.message?.trim() || !body.npcId || !body.roomId) {
+  if (!body.message?.trim() || !body.npcId || !body.roomId || !body.gameId?.trim()) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const storedChat = await loadNegotiationChat(uid, body.roomId, body.npcId);
+  const gameId = body.gameId.trim();
+  const storedChat = await loadNegotiationChat(uid, gameId, body.roomId, body.npcId);
   const storedHistory = messagesForModel(storedChat);
   const memoryBlock = buildPlayerMemoryBlock(storedChat);
 
@@ -355,7 +357,7 @@ export async function POST(request: Request) {
     : fallbackResponse(body, paymentVerified);
 
   try {
-    await saveNegotiationTurn(uid, {
+    await saveNegotiationTurn(uid, gameId, {
       roomId: body.roomId,
       npcId: body.npcId,
       npcName: body.npcName,

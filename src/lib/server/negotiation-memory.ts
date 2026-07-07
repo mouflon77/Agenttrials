@@ -9,8 +9,13 @@ import {
   type NegotiationMessage,
 } from "@/types/negotiation";
 
-function chatCollection(uid: string) {
-  return getFirebaseAdminDb().collection("users").doc(uid).collection("negotiationChats");
+function chatCollection(uid: string, gameId: string) {
+  return getFirebaseAdminDb()
+    .collection("users")
+    .doc(uid)
+    .collection("games")
+    .doc(gameId)
+    .collection("negotiationChats");
 }
 
 function toIso(value: unknown): string {
@@ -57,10 +62,13 @@ export function normalizeNegotiationChat(
 
 export async function loadNegotiationChat(
   uid: string,
+  gameId: string,
   roomId: string,
   npcId: string,
 ): Promise<NegotiationChatDocument | null> {
-  const snap = await chatCollection(uid).doc(negotiationChatId(roomId, npcId)).get();
+  const snap = await chatCollection(uid, gameId)
+    .doc(negotiationChatId(roomId, npcId))
+    .get();
   if (!snap.exists) return null;
   return normalizeNegotiationChat(snap.data());
 }
@@ -112,6 +120,7 @@ function buildPlayerMemoryUpdate(
 
 export async function saveNegotiationTurn(
   uid: string,
+  gameId: string,
   input: {
     roomId: string;
     npcId: string;
@@ -121,15 +130,20 @@ export async function saveNegotiationTurn(
     passed: boolean;
   },
 ): Promise<NegotiationChatDocument> {
-  const ref = chatCollection(uid).doc(negotiationChatId(input.roomId, input.npcId));
+  const ref = chatCollection(uid, gameId).doc(
+    negotiationChatId(input.roomId, input.npcId),
+  );
   const snap = await ref.get();
   const existing = normalizeNegotiationChat(snap.data());
   const now = new Date().toISOString();
 
-  const newMessages: NegotiationMessage[] = [
-    ...(existing?.messages ?? []),
+  const turnMessages: NegotiationMessage[] = [
     { role: "user", text: input.userMessage.trim(), at: now },
     { role: "npc", text: input.npcReply.trim(), at: now },
+  ];
+  const newMessages: NegotiationMessage[] = [
+    ...(existing?.messages ?? []),
+    ...turnMessages,
   ].slice(-MAX_NEGOTIATION_MESSAGES);
 
   const doc: NegotiationChatDocument = {

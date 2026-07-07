@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { GameSavesPanel } from "@/components/dashboard/GameSavesPanel";
 import { UserProfileBar } from "@/components/UserProfileBar";
+import { useGames } from "@/hooks/useGames";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useRoomList } from "@/hooks/useRoomList";
 import { formatRoomLabel } from "@/types/room";
@@ -59,19 +62,25 @@ function AdminSetupCard() {
 export default function DashboardPage() {
   const { user, userProfile } = useAuth();
   const isAdmin = useIsAdmin();
+  const { games, loading: gamesLoading } = useGames(user?.uid);
   const { rooms, loading: roomsLoading } = useRoomList();
 
   const displayName =
     userProfile?.displayName ?? userProfile?.twitterHandle ?? "there";
 
   const playRooms = rooms.length > 0 ? rooms : [{ id: "room_01" }];
+  const defaultStartRoomId = playRooms[0]?.id ?? "room_01";
+  const roomsById = useMemo(
+    () => new Map(rooms.map((room) => [room.id, room])),
+    [rooms],
+  );
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            Axonometric Sandbox
+            Agenttrials
           </h1>
           <UserProfileBar variant="light" />
         </div>
@@ -79,13 +88,21 @@ export default function DashboardPage() {
 
       <main className="mx-auto max-w-4xl px-6 py-12">
         <p className="text-zinc-600 dark:text-zinc-400">
-          Welcome, {displayName}. Enter a floor
-          {isAdmin ? " or open the editor" : ""}.
+          Welcome, {displayName}. Start a new game or continue a saved one
+          {isAdmin ? ", or open the editor" : ""}.
         </p>
 
-        <section className="mt-8">
+        <GameSavesPanel
+          games={games}
+          loading={gamesLoading}
+          roomsById={roomsById}
+          defaultStartRoomId={defaultStartRoomId}
+        />
+
+        {isAdmin && (
+        <section className="mt-10">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-            Floors
+            Floors (admin)
           </h2>
           {roomsLoading ? (
             <p className="mt-3 text-sm text-zinc-500">Loading floors…</p>
@@ -102,27 +119,18 @@ export default function DashboardPage() {
                     </p>
                     <p className="font-mono text-[11px] text-zinc-500">{room.id}</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Link
-                      href={`/play/${room.id}`}
-                      className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900"
-                    >
-                      Play
-                    </Link>
-                    {isAdmin && (
-                      <Link
-                        href={`/admin/editor?roomId=${encodeURIComponent(room.id)}`}
-                        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                      >
-                        Edit
-                      </Link>
-                    )}
-                  </div>
+                  <Link
+                    href={`/admin/editor?roomId=${encodeURIComponent(room.id)}`}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    Edit
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
         </section>
+        )}
 
         <div className="mt-8 flex flex-wrap gap-4">
           <Link

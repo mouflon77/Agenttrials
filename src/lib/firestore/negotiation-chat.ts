@@ -3,11 +3,13 @@ import { doc, onSnapshot, type Unsubscribe } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 import { negotiationChatId, type NegotiationChatDocument } from "@/types/negotiation";
 
-function chatRef(uid: string, roomId: string, npcId: string) {
+function chatRef(uid: string, gameId: string, roomId: string, npcId: string) {
   return doc(
     getFirebaseDb(),
     "users",
     uid,
+    "games",
+    gameId,
     "negotiationChats",
     negotiationChatId(roomId, npcId),
   );
@@ -56,12 +58,13 @@ function normalizeClientChat(
 
 export function subscribeToNegotiationChat(
   uid: string,
+  gameId: string,
   roomId: string,
   npcId: string,
   onData: (chat: NegotiationChatDocument | null) => void,
 ): Unsubscribe {
   return onSnapshot(
-    chatRef(uid, roomId, npcId),
+    chatRef(uid, gameId, roomId, npcId),
     (snap) => {
       onData(snap.exists() ? normalizeClientChat(snap.data()) : null);
     },

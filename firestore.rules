@@ -119,6 +119,16 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow write: if false;
       }
+
+      match /games/{gameId} {
+        allow read: if isOwner(userId);
+        allow create, update, delete: if false;
+
+        match /negotiationChats/{chatId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+        }
+      }
     }
 
     match /rooms/{roomId} {

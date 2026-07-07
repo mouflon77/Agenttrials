@@ -11,6 +11,7 @@ import { PlayHud } from "@/components/play/PlayHud";
 import { VirtualJoystick } from "@/components/play/VirtualJoystick";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHeadgear } from "@/hooks/useHeadgear";
+import { useGameSave } from "@/hooks/useGameSave";
 import { useNpcChat } from "@/hooks/useNpcChat";
 import { usePlayerMovement } from "@/hooks/usePlayerMovement";
 import { getHeadgearTexture } from "@/lib/firestore/headgear";
@@ -29,7 +30,9 @@ interface PlaySceneProps {
   room: RoomDocument;
   tilesets: TilesetRegistry;
   roomId: string;
+  gameId: string;
   initialSpawn?: { x: number; z: number };
+  initialUnlockedByRoom?: Record<string, string[]>;
 }
 
 function buildBlockedCells(room: RoomDocument, tilesets: TilesetRegistry): Set<string> {
@@ -87,7 +90,9 @@ export function PlayScene({
   room,
   tilesets,
   roomId,
+  gameId,
   initialSpawn = { x: 6, z: 6 },
+  initialUnlockedByRoom = {},
 }: PlaySceneProps) {
   const router = useRouter();
   const { user, userProfile } = useAuth();
@@ -103,20 +108,24 @@ export function PlayScene({
   const inputPaused = Boolean(chatNpc);
   const speechBubbleRef = useRef<HTMLDivElement>(null);
 
-  const [unlockedPortalIds, setUnlockedPortalIds] = useState<Set<string>>(
-    () => new Set(),
+  const [unlockedByRoom, setUnlockedByRoom] = useState<Record<string, string[]>>(
+    () => ({ ...initialUnlockedByRoom }),
   );
 
-  const handleNpcPassed = useCallback((npcId: string) => {
-    setUnlockedPortalIds((prev) => {
-      const next = new Set(prev);
-      for (const portal of room.portals) {
-        next.add(portal.id);
-      }
-      void npcId;
-      return next;
-    });
-  }, [room.portals]);
+  const unlockedPortalIds = useMemo(
+    () => new Set(unlockedByRoom[roomId] ?? []),
+    [unlockedByRoom, roomId],
+  );
+
+  const handleNpcPassed = useCallback(
+    (_npcId: string) => {
+      setUnlockedByRoom((prev) => ({
+        ...prev,
+        [roomId]: room.portals.map((portal) => portal.id),
+      }));
+    },
+    [room.portals, roomId],
+  );
 
   const {
     input: chatInput,
@@ -126,13 +135,20 @@ export function PlayScene({
     sending: chatSending,
     send: sendChat,
     registerBribePayment,
-  } = useNpcChat(roomId, chatNpc, user?.uid, handleNpcPassed);
+  } = useNpcChat(gameId, roomId, chatNpc, user?.uid, handleNpcPassed);
 
   const {
     gridPosition,
     visualPosition,
     applyJoystick,
   } = usePlayerMovement(initialSpawn, blockedCells, room, inputPaused);
+
+  const { saveNow } = useGameSave(gameId, {
+    roomId,
+    playerX: gridPosition.x,
+    playerZ: gridPosition.z,
+    unlockedPortals: unlockedByRoom,
+  });
 
   const avatarConfig = normalizeAvatarConfig(
     userProfile?.avatarConfig ?? DEFAULT_AVATAR_CONFIG,
@@ -168,10 +184,19 @@ export function PlayScene({
       if (!portal || !unlockedPortalIds.has(portalId)) return;
       const sx = Math.min(GRID_SIZE - 1, Math.max(0, portal.spawnX));
       const sz = Math.min(GRID_SIZE - 1, Math.max(0, portal.spawnZ));
-      const params = new URLSearchParams({ spawnX: String(sx), spawnZ: String(sz) });
+      void saveNow({
+        roomId: portal.targetRoomId,
+        playerX: sx,
+        playerZ: sz,
+      });
+      const params = new URLSearchParams({
+        gameId,
+        spawnX: String(sx),
+        spawnZ: String(sz),
+      });
       router.push(`/play/${portal.targetRoomId}?${params.toString()}`);
     },
-    [room.portals, unlockedPortalIds, router],
+    [room.portals, unlockedPortalIds, router, gameId, saveNow],
   );
 
   const prevGridRef = useRef(gridPosition);
