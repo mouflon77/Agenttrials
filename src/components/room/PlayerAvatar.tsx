@@ -1,6 +1,5 @@
 "use client";
 
-import { Billboard } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,16 +12,23 @@ import {
   TextureLoader,
   Vector3,
 } from "three";
+import { HeadgearMesh } from "@/components/room/HeadgearMesh";
 import { NameLabel } from "@/components/room/NameLabel";
-import { StandeePlane } from "@/components/room/StandeePlane";
-import type { AvatarConfig } from "@/types/avatar";
+import { headgearYawForFacingRow } from "@/lib/headgear-assets";
+import {
+  createPresetHeadDataUrl,
+  shouldUsePresetHead,
+} from "@/lib/avatar-head-texture";
+import {
+  DEFAULT_SKIN_TONE,
+  type AvatarConfig,
+  type HeadgearId,
+} from "@/types/avatar";
 import type { WorldPosition } from "@/lib/movement";
 
-const BODY_RADIUS = 0.3;
-const BODY_HEIGHT = 0.72;
-const HEAD_RADIUS = 0.22;
-const HEADGEAR_W = 0.45;
-const HEADGEAR_H = 0.3;
+export const BODY_RADIUS = 0.3;
+export const BODY_HEIGHT = 0.72;
+export const HEAD_RADIUS = 0.22;
 
 const photoTextureCache = new Map<string, Texture>();
 const photoTextureLoads = new Map<string, Promise<Texture>>();
@@ -61,29 +67,29 @@ function loadPhotoTexture(url: string): Promise<Texture> {
   return promise;
 }
 
-function usePhotoTexture(photoURL?: string | null) {
+function useTextureUrl(url?: string | null) {
   const [texture, setTexture] = useState<Texture | null>(() =>
-    photoURL ? (photoTextureCache.get(photoURL) ?? null) : null,
+    url ? (photoTextureCache.get(url) ?? null) : null,
   );
 
   useEffect(() => {
-    if (!photoURL) {
+    if (!url) {
       setTexture(null);
       return;
     }
-    const cached = photoTextureCache.get(photoURL);
+    const cached = photoTextureCache.get(url);
     if (cached) {
       setTexture(cached);
       return;
     }
     let cancelled = false;
-    void loadPhotoTexture(photoURL).then((tex) => {
+    void loadPhotoTexture(url).then((tex) => {
       if (!cancelled) setTexture(tex);
     });
     return () => {
       cancelled = true;
     };
-  }, [photoURL]);
+  }, [url]);
 
   return texture;
 }
@@ -92,8 +98,8 @@ interface PlayerAvatarProps {
   visualPosition: WorldPosition;
   avatarConfig: AvatarConfig;
   photoURL?: string | null;
-  headgearTextureUrl?: string;
   displayName?: string | null;
+  facingRow?: number;
 }
 
 function GlassBody({ bodyColor }: { bodyColor: string }) {
@@ -101,7 +107,6 @@ function GlassBody({ bodyColor }: { bodyColor: string }) {
 
   return (
     <group position={[0, BODY_HEIGHT / 2, 0]}>
-      {/* Soft colored core */}
       <mesh>
         <cylinderGeometry args={[BODY_RADIUS * 0.82, BODY_RADIUS * 0.88, BODY_HEIGHT * 0.92, 32]} />
         <meshBasicMaterial
@@ -112,7 +117,6 @@ function GlassBody({ bodyColor }: { bodyColor: string }) {
         />
       </mesh>
 
-      {/* Glass shell */}
       <mesh>
         <cylinderGeometry args={[BODY_RADIUS, BODY_RADIUS * 1.05, BODY_HEIGHT, 32]} />
         <meshPhysicalMaterial
@@ -133,7 +137,6 @@ function GlassBody({ bodyColor }: { bodyColor: string }) {
         />
       </mesh>
 
-      {/* Rim highlight */}
       <mesh>
         <cylinderGeometry
           args={[BODY_RADIUS * 1.02, BODY_RADIUS * 1.07, BODY_HEIGHT * 1.01, 32, 1, true]}
@@ -154,15 +157,26 @@ function GlassBody({ bodyColor }: { bodyColor: string }) {
 
 function FaceSphere({
   photoURL,
-  bodyColor,
+  avatarConfig,
 }: {
   photoURL?: string | null;
-  bodyColor: string;
+  avatarConfig: AvatarConfig;
 }) {
   const meshRef = useRef<Mesh>(null);
   const worldPos = useRef(new Vector3());
-  const texture = usePhotoTexture(photoURL);
   const headY = BODY_HEIGHT + HEAD_RADIUS * 0.85;
+  const usePreset = shouldUsePresetHead(avatarConfig.headSource, photoURL);
+
+  const presetDataUrl = useMemo(() => {
+    if (!usePreset || typeof document === "undefined") return null;
+    return createPresetHeadDataUrl(
+      avatarConfig.headGender ?? "male",
+      avatarConfig.skinTone ?? DEFAULT_SKIN_TONE,
+    );
+  }, [usePreset, avatarConfig.headGender, avatarConfig.skinTone]);
+
+  const texture = useTextureUrl(usePreset ? presetDataUrl : photoURL);
+  const fallbackColor = avatarConfig.skinTone ?? DEFAULT_SKIN_TONE;
 
   useFrame(({ camera }) => {
     const mesh = meshRef.current;
@@ -180,44 +194,54 @@ function FaceSphere({
         <meshStandardMaterial map={texture} roughness={0.55} metalness={0.05} />
       ) : (
         <meshStandardMaterial
-          color={bodyColor}
-          emissive={bodyColor}
-          emissiveIntensity={0.25}
-          roughness={0.4}
+          color={fallbackColor}
+          emissive={fallbackColor}
+          emissiveIntensity={0.12}
+          roughness={0.45}
         />
       )}
     </mesh>
   );
 }
 
+function headgearIdFromConfig(headgearId: string): HeadgearId {
+  if (
+    headgearId === "cap_red" ||
+    headgearId === "cap_blue" ||
+    headgearId === "horns" ||
+    headgearId === "crown" ||
+    headgearId === "none"
+  ) {
+    return headgearId;
+  }
+  return "none";
+}
+
 export function PlayerAvatar({
   visualPosition,
   avatarConfig,
   photoURL,
-  headgearTextureUrl,
   displayName,
+  facingRow = 2,
 }: PlayerAvatarProps) {
-  const showHeadgear =
-    avatarConfig.headgearId !== "none" && Boolean(headgearTextureUrl);
   const headY = BODY_HEIGHT + HEAD_RADIUS * 0.85;
-  const gearTop = showHeadgear
-    ? headY + HEAD_RADIUS * 0.85 + HEADGEAR_H * 0.5
-    : headY + HEAD_RADIUS;
-  const labelY = gearTop + 0.28;
+  const gearYaw = headgearYawForFacingRow(facingRow);
+  const headgearId = headgearIdFromConfig(avatarConfig.headgearId);
+  const showHeadgear = headgearId !== "none";
+  const labelY = headY + HEAD_RADIUS * 1.35 + (showHeadgear ? 0.12 : 0);
 
   return (
     <group position={[visualPosition.x, 0, visualPosition.z]}>
       <GlassBody bodyColor={avatarConfig.bodyColor} />
-      <FaceSphere photoURL={photoURL} bodyColor={avatarConfig.bodyColor} />
+      <FaceSphere photoURL={photoURL} avatarConfig={avatarConfig} />
       {showHeadgear && (
-        <Billboard position={[0, headY + HEAD_RADIUS * 0.85, 0]} follow lockY>
-          <StandeePlane
-            textureUrl={headgearTextureUrl}
-            width={HEADGEAR_W}
-            height={HEADGEAR_H}
-            color="#ffffff"
-          />
-        </Billboard>
+        <group
+          position={[0, headY, 0]}
+          scale={HEAD_RADIUS}
+          rotation={[0, gearYaw, 0]}
+        >
+          <HeadgearMesh headgearId={headgearId} />
+        </group>
       )}
       {displayName ? <NameLabel name={displayName} y={labelY} /> : null}
     </group>

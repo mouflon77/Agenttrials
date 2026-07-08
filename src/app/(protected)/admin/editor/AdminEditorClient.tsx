@@ -21,7 +21,7 @@ import {
   removeWindowTile,
   resetRoom,
   migrateFurnitureIds,
-  updateDoorTile,
+  setWallOverlayPlacement,
   updateFloorTile,
   updateFurnitureItem,
   updateNpcItem,
@@ -29,7 +29,6 @@ import {
   updatePlayerSpawn,
   updateRoomColors,
   updateWallTile,
-  updateWindowTile,
 } from "@/lib/firestore/rooms";
 import { seedDefaultTilesets, deleteTile, renameTile, uploadTileTexture } from "@/lib/firestore/tileset";
 import {
@@ -57,14 +56,23 @@ import { useAgentWallets } from "@/hooks/useAgentWallets";
 import { useRoomList } from "@/hooks/useRoomList";
 import {
   DEFAULT_FURNITURE_COLOR,
+  DEFAULT_GATEKEEPER_QUIRKS,
+  DEFAULT_GATEKEEPER_ROLE,
   DEFAULT_GATEKEEPER_STATS,
+  DEFAULT_GATEKEEPER_STYLE,
+  DEFAULT_PASS_HINT,
+  DEFAULT_PASS_KEYWORDS,
   GRID_SIZE,
   MAX_TEXTURE_PX,
+  canPlaceWallOverlay,
   clampGatekeeperStat,
+  findWallOverlayAtCell,
   floorIndex,
+  formatOverlayFootprint,
   formatWallKeyLabel,
+  getOverlayFootprint,
   isGridEdge,
-  listActiveOverlayEntries,
+  listWallOverlayPlacements,
   normalizeGatekeeperStats,
   wallKey,
   type EditorMode,
@@ -98,6 +106,11 @@ const SELECTION_STORAGE_KEY = "agenttrials-editor-selection";
 function npcFormSnapshot(input: {
   name: string;
   prompt: string;
+  role: string;
+  conversationalStyle: string;
+  signatureQuirks: string;
+  passKeywords: string;
+  passHint: string;
   stats: GatekeeperStats;
   standeeType: string;
   walletAddress: string;
@@ -106,6 +119,11 @@ function npcFormSnapshot(input: {
   return JSON.stringify({
     name: input.name.trim(),
     prompt: input.prompt.trim(),
+    role: input.role.trim(),
+    conversationalStyle: input.conversationalStyle.trim(),
+    signatureQuirks: input.signatureQuirks.trim(),
+    passKeywords: input.passKeywords.trim(),
+    passHint: input.passHint.trim(),
     stats: normalizeGatekeeperStats(input.stats),
     standeeType: input.standeeType,
     walletAddress: input.walletAddress.trim(),
@@ -166,8 +184,17 @@ export default function AdminEditorClient() {
   const [selectedPortalId, setSelectedPortalId] = useState<string | null>(null);
   const [npcName, setNpcName] = useState("Gatekeeper");
   const [npcPrompt, setNpcPrompt] = useState(
-    "Bored, protective of their time, and expects you to be demanding.",
+    "Bored but fair. You guard the portal because you need to feel respected and hear a real reason, not flattery or orders. Drop hints about wanting specificity and genuine understanding when players are vague.",
   );
+  const [npcRole, setNpcRole] = useState(DEFAULT_GATEKEEPER_ROLE);
+  const [npcConversationalStyle, setNpcConversationalStyle] = useState(
+    DEFAULT_GATEKEEPER_STYLE,
+  );
+  const [npcSignatureQuirks, setNpcSignatureQuirks] = useState(
+    DEFAULT_GATEKEEPER_QUIRKS,
+  );
+  const [npcPassKeywords, setNpcPassKeywords] = useState(DEFAULT_PASS_KEYWORDS);
+  const [npcPassHint, setNpcPassHint] = useState(DEFAULT_PASS_HINT);
   const [npcStats, setNpcStats] = useState<GatekeeperStats>(
     DEFAULT_GATEKEEPER_STATS,
   );
@@ -317,14 +344,18 @@ export default function AdminEditorClient() {
     return isGridEdge(portalGhostPosition.x, portalGhostPosition.z);
   }, [portalGhostPosition, mode]);
 
-  const placedDoors = useMemo(
-    () => (room ? listActiveOverlayEntries(room.doorGrid) : []),
-    [room],
-  );
-  const placedWindows = useMemo(
-    () => (room ? listActiveOverlayEntries(room.windowGrid) : []),
-    [room],
-  );
+  const placedDoors = useMemo(() => {
+    if (!room) return [];
+    const footprint = (tileId: string) =>
+      getOverlayFootprint(getTile(tilesets, "door", tileId));
+    return listWallOverlayPlacements(room.doorGrid, footprint);
+  }, [room, tilesets]);
+  const placedWindows = useMemo(() => {
+    if (!room) return [];
+    const footprint = (tileId: string) =>
+      getOverlayFootprint(getTile(tilesets, "window", tileId));
+    return listWallOverlayPlacements(room.windowGrid, footprint);
+  }, [room, tilesets]);
   const overlayEraserActive =
     overlayEraser && (mode === "door" || mode === "window");
 
@@ -364,6 +395,11 @@ export default function AdminEditorClient() {
     const current = npcFormSnapshot({
       name: npcName,
       prompt: npcPrompt,
+      role: npcRole,
+      conversationalStyle: npcConversationalStyle,
+      signatureQuirks: npcSignatureQuirks,
+      passKeywords: npcPassKeywords,
+      passHint: npcPassHint,
       stats: npcStats,
       standeeType: selectedTileId,
       walletAddress: npcWalletAddress,
@@ -374,6 +410,11 @@ export default function AdminEditorClient() {
     selectedNpcId,
     npcName,
     npcPrompt,
+    npcRole,
+    npcConversationalStyle,
+    npcSignatureQuirks,
+    npcPassKeywords,
+    npcPassHint,
     npcStats,
     selectedTileId,
     npcWalletAddress,
@@ -385,7 +426,14 @@ export default function AdminEditorClient() {
     setRenameValue(selectedTile?.name ?? "");
     setRenameError(null);
     setDeleteError(null);
-  }, [selectedTileId, mode, selectedTile?.name]);
+    if (mode === "door" && selectedTile) {
+      setGridWidth(selectedTile.width ?? 1);
+      setGridDepth(2);
+    } else if (mode === "window" && selectedTile) {
+      setGridWidth(selectedTile.width ?? 1);
+      setGridDepth(selectedTile.depth ?? 1);
+    }
+  }, [selectedTileId, mode, selectedTile?.name, selectedTile?.width, selectedTile?.depth]);
 
   const selectItem = (id: string) => {
     if (!paletteCategory) return;
@@ -434,16 +482,83 @@ export default function AdminEditorClient() {
   };
 
   const eraseOverlayAt = (side: WallSide, along: number, height: number) => {
-    const key = wallKey(side, along, height);
+    if (!room) return;
     if (mode === "door") {
-      paintWallCell(side, along, height, `erase-${key}`, () =>
-        removeDoorTile(roomId, key),
+      const footprint = (tileId: string) =>
+        getOverlayFootprint(getTile(tilesets, "door", tileId));
+      const placement = findWallOverlayAtCell(
+        room.doorGrid,
+        footprint,
+        side,
+        along,
+        height,
+      );
+      if (!placement) return;
+      paintWallCell(
+        side,
+        along,
+        height,
+        `erase-${placement.key}`,
+        () => removeDoorTile(roomId, placement.key),
       );
     } else if (mode === "window") {
-      paintWallCell(side, along, height, `erase-${key}`, () =>
-        removeWindowTile(roomId, key),
+      const footprint = (tileId: string) =>
+        getOverlayFootprint(getTile(tilesets, "window", tileId));
+      const placement = findWallOverlayAtCell(
+        room.windowGrid,
+        footprint,
+        side,
+        along,
+        height,
+      );
+      if (!placement) return;
+      paintWallCell(
+        side,
+        along,
+        height,
+        `erase-${placement.key}`,
+        () => removeWindowTile(roomId, placement.key),
       );
     }
+  };
+
+  const placeOverlayAt = (
+    kind: "door" | "window",
+    side: WallSide,
+    along: number,
+    height: number,
+    tileId: string,
+  ) => {
+    if (!room) return;
+    const grid = kind === "door" ? room.doorGrid : room.windowGrid;
+    const footprint = getOverlayFootprint(getTile(tilesets, kind, tileId));
+    if (
+      !canPlaceWallOverlay(
+        side,
+        along,
+        height,
+        footprint.along,
+        footprint.height,
+      )
+    ) {
+      return;
+    }
+
+    const getFootprint = (id: string) =>
+      getOverlayFootprint(getTile(tilesets, kind, id));
+    const originKey = wallKey(side, along, height);
+    const removeKeys = new Set<string>();
+
+    for (let a = along; a < along + footprint.along; a++) {
+      for (let h = height; h < height + footprint.height; h++) {
+        const existing = findWallOverlayAtCell(grid, getFootprint, side, a, h);
+        if (existing) removeKeys.add(existing.key);
+      }
+    }
+
+    paintWallCell(side, along, height, originKey, () =>
+      setWallOverlayPlacement(roomId, kind, originKey, tileId, [...removeKeys]),
+    );
   };
 
   const handleFloorClick = (x: number, z: number) => {
@@ -492,6 +607,11 @@ export default function AdminEditorClient() {
       const snapshot = npcFormSnapshot({
         name: npcName,
         prompt: npcPrompt,
+        role: npcRole,
+        conversationalStyle: npcConversationalStyle,
+        signatureQuirks: npcSignatureQuirks,
+        passKeywords: npcPassKeywords,
+        passHint: npcPassHint,
         stats: npcStats,
         standeeType: selectedTileId,
         walletAddress: npcWalletAddress,
@@ -505,6 +625,11 @@ export default function AdminEditorClient() {
           z,
           name: npcName.trim() || "NPC",
           prompt: npcPrompt.trim(),
+          role: npcRole.trim() || undefined,
+          conversationalStyle: npcConversationalStyle.trim() || undefined,
+          signatureQuirks: npcSignatureQuirks.trim() || undefined,
+          passKeywords: npcPassKeywords.trim() || undefined,
+          passHint: npcPassHint.trim() || undefined,
           stats: normalizeGatekeeperStats(npcStats),
           ...(npcWalletAddress.trim()
             ? { walletAddress: npcWalletAddress.trim() }
@@ -562,17 +687,13 @@ export default function AdminEditorClient() {
         eraseOverlayAt(side, along, height);
         return;
       }
-      paintWallCell(side, along, height, key, () =>
-        updateDoorTile(roomId, key, selectedTileId),
-      );
+      placeOverlayAt("door", side, along, height, selectedTileId);
     } else if (mode === "window") {
       if (overlayEraserActive) {
         eraseOverlayAt(side, along, height);
         return;
       }
-      paintWallCell(side, along, height, key, () =>
-        updateWindowTile(roomId, key, selectedTileId),
-      );
+      placeOverlayAt("window", side, along, height, selectedTileId);
     }
   };
 
@@ -633,6 +754,11 @@ export default function AdminEditorClient() {
   const loadNpcForm = (npc: {
     name: string;
     prompt: string;
+    role?: string;
+    conversationalStyle?: string;
+    signatureQuirks?: string;
+    passKeywords?: string;
+    passHint?: string;
     stats?: GatekeeperStats;
     walletAddress?: string;
     bribeAmountSol?: number;
@@ -640,6 +766,15 @@ export default function AdminEditorClient() {
   }) => {
     setNpcName(npc.name);
     setNpcPrompt(npc.prompt);
+    setNpcRole(npc.role?.trim() || DEFAULT_GATEKEEPER_ROLE);
+    setNpcConversationalStyle(
+      npc.conversationalStyle?.trim() || DEFAULT_GATEKEEPER_STYLE,
+    );
+    setNpcSignatureQuirks(
+      npc.signatureQuirks?.trim() || DEFAULT_GATEKEEPER_QUIRKS,
+    );
+    setNpcPassKeywords(npc.passKeywords?.trim() || DEFAULT_PASS_KEYWORDS);
+    setNpcPassHint(npc.passHint?.trim() || DEFAULT_PASS_HINT);
     setNpcStats(normalizeGatekeeperStats(npc.stats));
     setNpcWalletAddress(npc.walletAddress ?? "");
     setNpcBribeAmountSol(
@@ -654,6 +789,13 @@ export default function AdminEditorClient() {
       npcFormSnapshot({
         name: npc.name,
         prompt: npc.prompt,
+        role: npc.role?.trim() || DEFAULT_GATEKEEPER_ROLE,
+        conversationalStyle:
+          npc.conversationalStyle?.trim() || DEFAULT_GATEKEEPER_STYLE,
+        signatureQuirks:
+          npc.signatureQuirks?.trim() || DEFAULT_GATEKEEPER_QUIRKS,
+        passKeywords: npc.passKeywords?.trim() || DEFAULT_PASS_KEYWORDS,
+        passHint: npc.passHint?.trim() || DEFAULT_PASS_HINT,
         stats: normalizeGatekeeperStats(npc.stats),
         standeeType: npc.standeeType,
         walletAddress: npc.walletAddress ?? "",
@@ -703,6 +845,11 @@ export default function AdminEditorClient() {
     const snapshot = npcFormSnapshot({
       name: npcName,
       prompt: npcPrompt,
+      role: npcRole,
+      conversationalStyle: npcConversationalStyle,
+      signatureQuirks: npcSignatureQuirks,
+      passKeywords: npcPassKeywords,
+      passHint: npcPassHint,
       stats: npcStats,
       standeeType: selectedTileId,
       walletAddress: npcWalletAddress,
@@ -713,6 +860,11 @@ export default function AdminEditorClient() {
       await updateNpcItem(roomId, selectedNpcId, {
         name: npcName.trim() || "NPC",
         prompt: npcPrompt.trim(),
+        role: npcRole.trim() || undefined,
+        conversationalStyle: npcConversationalStyle.trim() || undefined,
+        signatureQuirks: npcSignatureQuirks.trim() || undefined,
+        passKeywords: npcPassKeywords.trim() || undefined,
+        passHint: npcPassHint.trim() || undefined,
         stats: normalizeGatekeeperStats(npcStats),
         standeeType: selectedTileId,
         ...(wallet ? { walletAddress: wallet } : {}),
@@ -839,14 +991,22 @@ export default function AdminEditorClient() {
     setUploadError(null);
     setUploadSuccess(null);
     try {
+      const usesGrid =
+        paletteCategory === "furniture" ||
+        paletteCategory === "door" ||
+        paletteCategory === "window";
       const { id, tile } = await uploadTileTexture({
         file: pendingFile,
         name: pendingTileName.trim(),
         category: paletteCategory,
         pixelWidth,
         pixelHeight,
-        gridWidth: paletteCategory === "furniture" ? gridWidth : 1,
-        gridDepth: paletteCategory === "furniture" ? gridDepth : 1,
+        gridWidth: usesGrid ? gridWidth : 1,
+        gridDepth: usesGrid
+          ? paletteCategory === "door"
+            ? 2
+            : gridDepth
+          : 1,
       });
       addTile(paletteCategory, id, tile);
       selectItem(id);
@@ -865,12 +1025,14 @@ export default function AdminEditorClient() {
   };
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100">
+    <div className="scanlines flex h-screen bg-term-bg text-zinc-100">
       <div className="relative flex-1">
-        <header className="absolute left-0 right-0 top-0 z-10 flex items-start justify-between gap-3 border-b border-zinc-800 bg-zinc-950/80 px-4 py-2 backdrop-blur">
+        <header className="terminal-bezel absolute left-2 right-2 top-2 z-10 flex items-start justify-between gap-3 rounded-lg px-4 py-2 sm:left-4 sm:right-4 sm:top-3">
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-center gap-2">
-              <h1 className="text-sm font-semibold">Floor Editor</h1>
+              <h1 className="text-sm font-black uppercase text-term-blue">
+                Floor Editor
+              </h1>
               {painting ? (
                 <span className="text-[10px] text-zinc-500">Saving…</span>
               ) : null}
@@ -1070,6 +1232,11 @@ export default function AdminEditorClient() {
             painting={painting}
             npcName={npcName}
             npcPrompt={npcPrompt}
+            npcRole={npcRole}
+            npcConversationalStyle={npcConversationalStyle}
+            npcSignatureQuirks={npcSignatureQuirks}
+            npcPassKeywords={npcPassKeywords}
+            npcPassHint={npcPassHint}
             npcStats={npcStats}
             npcWalletAddress={npcWalletAddress}
             npcBribeAmountSol={npcBribeAmountSol}
@@ -1093,6 +1260,26 @@ export default function AdminEditorClient() {
             onNpcPromptChange={(value) => {
               setNpcSaveSuccess(null);
               setNpcPrompt(value);
+            }}
+            onNpcRoleChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcRole(value);
+            }}
+            onNpcConversationalStyleChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcConversationalStyle(value);
+            }}
+            onNpcSignatureQuirksChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcSignatureQuirks(value);
+            }}
+            onNpcPassKeywordsChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcPassKeywords(value);
+            }}
+            onNpcPassHintChange={(value) => {
+              setNpcSaveSuccess(null);
+              setNpcPassHint(value);
             }}
             onNpcStatChange={handleNpcStatChange}
             onNpcBribeAmountSolChange={(value) => {
@@ -1291,7 +1478,7 @@ export default function AdminEditorClient() {
               ? "Click any wall tile to paint. Spin the camera to reach all four walls."
               : overlayEraserActive
                 ? "Eraser on — click or drag wall tiles to remove. Shift+click also removes."
-                : "Click wall tiles to place. Use Eraser or Shift+click to remove."}
+                : "Click the bottom-left wall cell of the opening. Doors are 2 tiles tall; double doors are 2 wide. Windows can be 1×1, 2 wide, 2 tall, or 2×2."}
           </p>
         )}
 
@@ -1319,16 +1506,21 @@ export default function AdminEditorClient() {
                     {placements.length})
                   </p>
                   <ul className="max-h-40 space-y-1 overflow-y-auto">
-                    {placements.map(({ key, tileId }) => {
+                    {placements.map(({ key, tileId, alongSpan, heightSpan }) => {
                       const def = getTile(tilesets, mode, tileId);
                       const label = def?.name ?? tileId;
+                      const size =
+                        alongSpan > 1 || heightSpan > 1
+                          ? ` · ${alongSpan}×${heightSpan}`
+                          : "";
                       return (
                         <li
                           key={key}
                           className="flex items-center gap-2 rounded bg-zinc-900 px-2 py-1.5 text-[11px] text-zinc-300"
                         >
                           <span className="min-w-0 flex-1 truncate">
-                            {label} · {formatWallKeyLabel(key)}
+                            {label}
+                            {size} · {formatWallKeyLabel(key)}
                           </span>
                           <button
                             type="button"
@@ -1471,6 +1663,8 @@ export default function AdminEditorClient() {
                     {tile.pixelWidth ?? 64}×{tile.pixelHeight ?? 64}px
                     {mode === "furniture" &&
                       ` · ${tile.width}×${tile.depth} grid`}
+                    {(mode === "door" || mode === "window") &&
+                      ` · ${formatOverlayFootprint(tile)} wall`}
                   </span>
                 </button>
               ))
@@ -1576,6 +1770,56 @@ export default function AdminEditorClient() {
                       onChange={(e) => setGridDepth(Number(e.target.value))}
                       className="mt-1 w-full rounded bg-zinc-800 px-2 py-1 text-xs"
                     />
+                  </label>
+                </div>
+              )}
+              {mode === "door" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[10px] text-zinc-500">
+                    Width (tiles along wall)
+                    <select
+                      value={gridWidth}
+                      onChange={(e) => setGridWidth(Number(e.target.value))}
+                      className="mt-1 w-full rounded bg-zinc-800 px-2 py-1 text-xs"
+                    >
+                      <option value={1}>Single (1 wide)</option>
+                      <option value={2}>Double (2 wide)</option>
+                    </select>
+                  </label>
+                  <label className="text-[10px] text-zinc-500">
+                    Height (tiles tall)
+                    <input
+                      type="number"
+                      value={2}
+                      disabled
+                      className="mt-1 w-full rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-500"
+                    />
+                  </label>
+                </div>
+              )}
+              {mode === "window" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[10px] text-zinc-500">
+                    Width (tiles along wall)
+                    <select
+                      value={gridWidth}
+                      onChange={(e) => setGridWidth(Number(e.target.value))}
+                      className="mt-1 w-full rounded bg-zinc-800 px-2 py-1 text-xs"
+                    >
+                      <option value={1}>1 tile</option>
+                      <option value={2}>2 tiles</option>
+                    </select>
+                  </label>
+                  <label className="text-[10px] text-zinc-500">
+                    Height (tiles tall)
+                    <select
+                      value={gridDepth}
+                      onChange={(e) => setGridDepth(Number(e.target.value))}
+                      className="mt-1 w-full rounded bg-zinc-800 px-2 py-1 text-xs"
+                    >
+                      <option value={1}>1 tile</option>
+                      <option value={2}>2 tiles</option>
+                    </select>
                   </label>
                 </div>
               )}

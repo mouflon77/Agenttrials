@@ -58,6 +58,12 @@ export function subscribeToRoomList(
         return {
           id: entry.id,
           ...(title ? { title } : {}),
+          ...(Number.isFinite(data.playerSpawnX)
+            ? { playerSpawnX: data.playerSpawnX }
+            : {}),
+          ...(Number.isFinite(data.playerSpawnZ)
+            ? { playerSpawnZ: data.playerSpawnZ }
+            : {}),
         };
       });
       rooms.sort((a, b) =>
@@ -200,6 +206,26 @@ export async function removeWindowTile(
   await updateDoc(ref, { [`windowGrid.${key}`]: deleteField() });
 }
 
+export async function setWallOverlayPlacement(
+  roomId: string,
+  kind: "door" | "window",
+  originKey: string,
+  tileId: string,
+  removeKeys: string[],
+): Promise<void> {
+  const field = kind === "door" ? "doorGrid" : "windowGrid";
+  const updates: Record<string, string | ReturnType<typeof deleteField>> = {
+    [`${field}.${originKey}`]: tileId,
+  };
+  for (const key of removeKeys) {
+    if (key !== originKey) {
+      updates[`${field}.${key}`] = deleteField();
+    }
+  }
+  const ref = doc(getFirebaseDb(), "rooms", roomId);
+  await updateDoc(ref, updates);
+}
+
 export async function updateRoomColors(
   roomId: string,
   colors: Partial<Pick<RoomDocument, "floorColor" | "wallColor">>,
@@ -295,6 +321,11 @@ export async function updateNpcItem(
       | "standeeType"
       | "name"
       | "prompt"
+      | "role"
+      | "conversationalStyle"
+      | "signatureQuirks"
+      | "passKeywords"
+      | "passHint"
       | "stats"
       | "walletAddress"
       | "bribeAmountSol"

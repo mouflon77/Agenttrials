@@ -12,6 +12,7 @@ interface NpcSpeechBubbleProps {
 export const NpcSpeechBubble = forwardRef<HTMLDivElement, NpcSpeechBubbleProps>(
   function NpcSpeechBubble({ npc, lines }, ref) {
     const scrollRef = useRef<HTMLDivElement>(null);
+    const visibleLines = lines.slice(-2);
 
     useEffect(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -31,7 +32,7 @@ export const NpcSpeechBubble = forwardRef<HTMLDivElement, NpcSpeechBubbleProps>(
             ref={scrollRef}
             className="max-h-28 space-y-1.5 overflow-y-auto text-xs leading-relaxed text-zinc-100"
           >
-            {lines.map((line, i) => (
+            {visibleLines.map((line, i) => (
               <p
                 key={i}
                 className={line.pending ? "italic text-zinc-500" : undefined}

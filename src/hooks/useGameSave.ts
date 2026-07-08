@@ -32,7 +32,9 @@ export function useGameSave(
     playerZ: number;
     unlockedPortals: Record<string, string[]>;
   },
+  options?: { skipPositionAutosave?: boolean },
 ) {
+  const skipPosition = options?.skipPositionAutosave ?? false;
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
 
@@ -40,25 +42,29 @@ export function useGameSave(
     async (override?: Partial<GameSavePatch>) => {
       if (!gameId) return;
       const current = snapshotRef.current;
-      await patchGame(gameId, {
+      const patch: GameSavePatch = {
         roomId: override?.roomId ?? current.roomId,
-        playerX: override?.playerX ?? current.playerX,
-        playerZ: override?.playerZ ?? current.playerZ,
         unlockedPortals: override?.unlockedPortals ?? current.unlockedPortals,
         ...override,
-      });
+      };
+      if (!skipPosition || override?.playerX != null || override?.playerZ != null) {
+        patch.playerX = override?.playerX ?? current.playerX;
+        patch.playerZ = override?.playerZ ?? current.playerZ;
+      }
+      await patchGame(gameId, patch);
     },
-    [gameId],
+    [gameId, skipPosition],
   );
 
   useEffect(() => {
-    if (!gameId) return;
+    if (!gameId || skipPosition) return;
     const timer = window.setTimeout(() => {
       void saveNow();
     }, 2500);
     return () => window.clearTimeout(timer);
   }, [
     gameId,
+    skipPosition,
     snapshot.roomId,
     snapshot.playerX,
     snapshot.playerZ,

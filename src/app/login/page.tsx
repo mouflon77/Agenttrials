@@ -15,7 +15,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace("/play/room_01");
+      router.replace("/dashboard");
     }
   }, [user, loading, router]);
 
@@ -32,7 +32,7 @@ export default function LoginPage() {
       if (email.trim()) {
         await saveEmailConsent(email.trim());
       }
-      router.replace("/play/room_01");
+      router.replace("/dashboard");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to sign in with X",
@@ -44,28 +44,29 @@ export default function LoginPage() {
 
   if (loading || user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900" />
+      <div className="scanlines flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-term-blue border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 dark:bg-zinc-950">
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="scanlines flex min-h-screen items-center justify-center px-4">
+      <div className="terminal-bezel w-full max-w-md rounded-xl p-8">
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Axonometric Sandbox
+          <div className="mx-auto mb-4 h-3 w-3 animate-pulse rounded-full bg-term-red shadow-[0_0_8px_#ff3131]" />
+          <h1 className="neon-text text-2xl font-black uppercase italic tracking-tighter text-term-blue">
+            Agent Trials
           </h1>
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            Sign in with X to enter your room
+          <p className="mt-2 font-mono text-xs text-zinc-500">
+            AUTH_TERMINAL // SIGN IN WITH X
           </p>
         </div>
 
         <div className="mb-4">
           <label
             htmlFor="email"
-            className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+            className="mb-1.5 block font-mono text-[10px] uppercase text-term-yellow"
           >
             Email (optional)
           </label>
@@ -75,27 +76,24 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-950"
+            className="term-input w-full rounded px-3 py-2.5 text-sm"
           />
-          <p className="mt-1.5 text-xs text-zinc-500">
-            We only use your email for product updates if you opt in.
-          </p>
         </div>
 
-        <label className="mb-6 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <label className="mb-6 flex items-start gap-2 font-mono text-xs text-zinc-400">
           <input
             type="checkbox"
             checked={acceptedTerms}
             onChange={(e) => setAcceptedTerms(e.target.checked)}
-            className="mt-1"
+            className="mt-1 accent-term-green"
           />
           <span>
             I agree to the{" "}
-            <Link href="/privacy" className="underline">
+            <Link href="/privacy" className="text-term-blue underline">
               Privacy Policy
             </Link>{" "}
             and{" "}
-            <Link href="/terms" className="underline">
+            <Link href="/terms" className="text-term-blue underline">
               Terms of Service
             </Link>
             .
@@ -104,16 +102,16 @@ export default function LoginPage() {
 
         <button
           type="button"
-          onClick={handleSignIn}
+          onClick={() => void handleSignIn()}
           disabled={signingIn}
-          className="flex w-full items-center justify-center gap-3 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
+          className="chunky-btn btn-glow-green flex w-full items-center justify-center gap-3 rounded py-3 text-sm"
         >
           <XIcon />
-          {signingIn ? "Signing in..." : "Sign in with X"}
+          {signingIn ? "AUTHENTICATING..." : "SIGN IN WITH X"}
         </button>
 
         {error && (
-          <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-center text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400">
+          <p className="mt-4 rounded border border-term-red/40 bg-red-950/40 px-3 py-2 text-center font-mono text-xs text-term-red">
             {error}
           </p>
         )}

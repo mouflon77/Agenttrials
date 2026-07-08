@@ -10,16 +10,17 @@ import { NpcScreenProjector } from "@/components/play/NpcScreenProjector";
 import { PlayHud } from "@/components/play/PlayHud";
 import { VirtualJoystick } from "@/components/play/VirtualJoystick";
 import { useAuth } from "@/contexts/AuthContext";
-import { useHeadgear } from "@/hooks/useHeadgear";
 import { useGameSave } from "@/hooks/useGameSave";
 import { useNpcChat } from "@/hooks/useNpcChat";
 import { usePlayerMovement } from "@/hooks/usePlayerMovement";
-import { getHeadgearTexture } from "@/lib/firestore/headgear";
 import { getFootprintCells } from "@/components/room/Furniture";
+import { worldToGrid } from "@/lib/movement";
 import { getTile, type TilesetRegistry } from "@/lib/tileset-collections";
 import {
   GRID_SIZE,
+  isUnsetSavedSpawn,
   isWithinTiles,
+  resolvePlayerSpawn,
   type NpcItem,
   type PortalItem,
   type RoomDocument,
@@ -96,7 +97,6 @@ export function PlayScene({
 }: PlaySceneProps) {
   const router = useRouter();
   const { user, userProfile } = useAuth();
-  const { items: headgearItems } = useHeadgear();
   const isMobile = useIsMobile();
 
   const blockedCells = useMemo(
@@ -107,6 +107,7 @@ export function PlayScene({
   const [chatNpc, setChatNpc] = useState<NpcItem | null>(null);
   const inputPaused = Boolean(chatNpc);
   const speechBubbleRef = useRef<HTMLDivElement>(null);
+  const enteringPortalRef = useRef(false);
 
   const [unlockedByRoom, setUnlockedByRoom] = useState<Record<string, string[]>>(
     () => ({ ...initialUnlockedByRoom }),
@@ -140,15 +141,31 @@ export function PlayScene({
   const {
     gridPosition,
     visualPosition,
+    facingRow,
     applyJoystick,
   } = usePlayerMovement(initialSpawn, blockedCells, room, inputPaused);
 
-  const { saveNow } = useGameSave(gameId, {
-    roomId,
-    playerX: gridPosition.x,
-    playerZ: gridPosition.z,
-    unlockedPortals: unlockedByRoom,
-  });
+  const roomSpawn = useMemo(() => resolvePlayerSpawn(room), [room]);
+  const skipPositionAutosave = isUnsetSavedSpawn(gridPosition, roomSpawn);
+
+  const { saveNow } = useGameSave(
+    gameId,
+    {
+      roomId,
+      playerX: gridPosition.x,
+      playerZ: gridPosition.z,
+      unlockedPortals: unlockedByRoom,
+    },
+    { skipPositionAutosave },
+  );
+
+  useEffect(() => {
+    if (isUnsetSavedSpawn(initialSpawn, roomSpawn)) return;
+    void saveNow({
+      playerX: initialSpawn.x,
+      playerZ: initialSpawn.z,
+    });
+  }, [gameId, roomId, initialSpawn.x, initialSpawn.z, roomSpawn, saveNow]);
 
   const avatarConfig = normalizeAvatarConfig(
     userProfile?.avatarConfig ?? DEFAULT_AVATAR_CONFIG,
@@ -159,10 +176,6 @@ export function PlayScene({
     userProfile?.displayName ||
     user?.displayName ||
     "Player";
-  const headgearTextureUrl = getHeadgearTexture(
-    headgearItems,
-    avatarConfig.headgearId,
-  );
 
   const nearbyNpc = useMemo(
     () => findNearbyNpc(gridPosition, room.npcs),
@@ -180,8 +193,10 @@ export function PlayScene({
 
   const enterPortal = useCallback(
     (portalId: string) => {
+      if (enteringPortalRef.current) return;
       const portal = room.portals.find((p) => p.id === portalId);
       if (!portal || !unlockedPortalIds.has(portalId)) return;
+      enteringPortalRef.current = true;
       const sx = Math.min(GRID_SIZE - 1, Math.max(0, portal.spawnX));
       const sz = Math.min(GRID_SIZE - 1, Math.max(0, portal.spawnZ));
       void saveNow({
@@ -199,43 +214,42 @@ export function PlayScene({
     [room.portals, unlockedPortalIds, router, gameId, saveNow],
   );
 
-  const prevGridRef = useRef(gridPosition);
-  useEffect(() => {
-    if (inputPaused) {
-      prevGridRef.current = gridPosition;
-      return;
-    }
-    const prev = prevGridRef.current;
-    const moved = prev.x !== gridPosition.x || prev.z !== gridPosition.z;
-    prevGridRef.current = gridPosition;
-    if (!moved) return;
+  const tryWarpAtTile = useCallback(
+    (x: number, z: number) => {
+      if (inputPaused || enteringPortalRef.current) return;
+      const portal = room.portals.find((p) => p.x === x && p.z === z);
+      if (portal && unlockedPortalIds.has(portal.id)) {
+        enterPortal(portal.id);
+      }
+    },
+    [room.portals, unlockedPortalIds, enterPortal, inputPaused],
+  );
 
-    const portal = room.portals.find(
-      (p) => p.x === gridPosition.x && p.z === gridPosition.z,
-    );
-    if (portal && unlockedPortalIds.has(portal.id)) {
-      enterPortal(portal.id);
-    }
+  useEffect(() => {
+    enteringPortalRef.current = false;
+  }, [roomId]);
+
+  useEffect(() => {
+    if (inputPaused) return;
+    tryWarpAtTile(gridPosition.x, gridPosition.z);
+    const visualCell = worldToGrid(visualPosition);
+    tryWarpAtTile(visualCell.x, visualCell.z);
   }, [
-    gridPosition,
-    room.portals,
-    unlockedPortalIds,
-    enterPortal,
+    gridPosition.x,
+    gridPosition.z,
+    visualPosition.x,
+    visualPosition.z,
+    tryWarpAtTile,
     inputPaused,
   ]);
 
   const handlePortalEnter = useCallback(
     (portalId: string) => {
       const portal = room.portals.find((p) => p.id === portalId);
-      if (
-        portal &&
-        gridPosition.x === portal.x &&
-        gridPosition.z === portal.z
-      ) {
-        enterPortal(portalId);
-      }
+      if (!portal) return;
+      tryWarpAtTile(portal.x, portal.z);
     },
-    [enterPortal, gridPosition, room.portals],
+    [tryWarpAtTile, room.portals],
   );
 
   return (
@@ -249,8 +263,8 @@ export function PlayScene({
           playerVisualPosition={visualPosition}
           playerAvatarConfig={avatarConfig}
           playerPhotoURL={photoURL}
-          playerHeadgearTextureUrl={headgearTextureUrl}
           playerDisplayName={displayName}
+          playerFacingRow={facingRow}
           unlockedPortalIds={unlockedPortalIds}
           onPortalEnter={handlePortalEnter}
         />

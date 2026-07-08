@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { UserProfileBar } from "@/components/UserProfileBar";
+import { TerminalShell } from "@/components/terminal/TerminalShell";
+import { TerminalSignOutButton } from "@/components/UserProfileBar";
 import { AvatarPreview2D } from "@/components/profile/AvatarPreview2D";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHeadgear } from "@/hooks/useHeadgear";
@@ -11,9 +12,11 @@ import { seedDefaultHeadgear } from "@/lib/firestore/headgear";
 import {
   AVATAR_BODY_COLORS,
   DEFAULT_AVATAR_CONFIG,
+  SKIN_TONES,
   normalizeAvatarConfig,
   type AvatarConfig,
 } from "@/types/avatar";
+import { HeadgearPreviewIcon } from "@/components/profile/HeadgearPreviewIcon";
 
 export default function ProfilePage() {
   const { user, userProfile, refreshProfile } = useAuth();
@@ -35,12 +38,10 @@ export default function ProfilePage() {
     }
   }, [headgearItems.length, headgearLoading]);
 
-  const selectedHeadgear = useMemo(
-    () => headgearItems.find((h) => h.id === config.headgearId),
-    [headgearItems, config.headgearId],
-  );
-
   const photoURL = userProfile?.photoURL ?? user?.photoURL;
+  const hasPhoto = Boolean(photoURL?.trim());
+  const displayName =
+    userProfile?.displayName ?? userProfile?.twitterHandle ?? "OPERATOR";
 
   const handleSave = async () => {
     if (!user) return;
@@ -50,7 +51,7 @@ export default function ProfilePage() {
     try {
       await saveAvatarConfig(user.uid, config);
       await refreshProfile();
-      setMessage("Avatar saved. Enter a room to see your look in 3D.");
+      setMessage("AVATAR_SAVED — enter a room to see your look in 3D.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save avatar");
     } finally {
@@ -59,41 +60,38 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-            >
-              ← Dashboard
-            </Link>
-            <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-              Avatar
-            </h1>
-          </div>
-          <UserProfileBar variant="light" />
+    <TerminalShell>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div className="border-l-4 border-term-yellow py-2 pl-4">
+          <p className="font-mono text-sm text-zinc-400">
+            &gt; PROFILE_MODULE: <span className="text-white">{displayName}</span>
+            <br />
+            &gt; PROTOCOL: BIO_EDIT
+          </p>
         </div>
-      </header>
+        <Link
+          href="/dashboard"
+          className="chunky-btn rounded px-4 py-2 text-[10px] text-white"
+        >
+          ← Dashboard
+        </Link>
+      </div>
 
-      <main className="mx-auto grid max-w-3xl gap-8 px-6 py-10 md:grid-cols-2">
-        <section className="flex flex-col items-center gap-4">
-          <h2 className="text-sm font-medium text-zinc-500">Preview</h2>
-          <AvatarPreview2D
-            config={config}
-            photoURL={photoURL}
-            headgear={selectedHeadgear}
-          />
-          <p className="text-center text-xs text-zinc-500">
-            Your avatar uses an animated 8-direction walk sprite in-game. Body
-            color tints the character; your X photo appears as a badge above.
+      <div className="grid gap-8 md:grid-cols-2">
+        <section className="terminal-bezel flex flex-col items-center gap-4 rounded-xl p-6">
+          <h2 className="text-sm font-black uppercase tracking-widest text-term-blue">
+            Preview
+          </h2>
+          <AvatarPreview2D config={config} photoURL={photoURL} />
+          <p className="text-center font-mono text-[10px] leading-relaxed text-zinc-500">
+            Preset head or profile photo on the sphere. Headgear sits on top in
+            3D.
           </p>
         </section>
 
-        <section className="space-y-6">
+        <section className="terminal-bezel space-y-6 rounded-xl p-6">
           <div>
-            <h2 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <h2 className="mb-3 text-sm font-black uppercase text-term-yellow">
               Body color
             </h2>
             <div className="flex flex-wrap gap-2">
@@ -104,8 +102,8 @@ export default function ProfilePage() {
                   onClick={() => setConfig((c) => ({ ...c, bodyColor: color }))}
                   className={`h-10 w-10 rounded-full border-2 transition-transform hover:scale-105 ${
                     config.bodyColor === color
-                      ? "border-zinc-900 ring-2 ring-sky-400 dark:border-white"
-                      : "border-zinc-300 dark:border-zinc-600"
+                      ? "border-term-blue ring-2 ring-term-blue/50"
+                      : "border-zinc-600"
                   }`}
                   style={{ backgroundColor: color }}
                   aria-label={`Color ${color}`}
@@ -115,11 +113,88 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <h2 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <h2 className="mb-3 text-sm font-black uppercase text-term-yellow">
+              Head
+            </h2>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!hasPhoto}
+                onClick={() => setConfig((c) => ({ ...c, headSource: "photo" }))}
+                className={`chunky-btn rounded px-4 py-2 text-[10px] ${
+                  config.headSource === "photo"
+                    ? "border-term-blue bg-term-blue/20 text-white"
+                    : "text-zinc-400"
+                } ${!hasPhoto ? "opacity-40" : ""}`}
+              >
+                Profile photo
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfig((c) => ({ ...c, headSource: "preset" }))}
+                className={`chunky-btn rounded px-4 py-2 text-[10px] ${
+                  config.headSource === "preset"
+                    ? "border-term-blue bg-term-blue/20 text-white"
+                    : "text-zinc-400"
+                }`}
+              >
+                Preset head
+              </button>
+            </div>
+            {config.headSource === "preset" && (
+              <>
+                <p className="mb-2 font-mono text-[10px] text-zinc-500">Gender</p>
+                <div className="mb-4 flex gap-2">
+                  {(["male", "female"] as const).map((gender) => (
+                    <button
+                      key={gender}
+                      type="button"
+                      onClick={() => setConfig((c) => ({ ...c, headGender: gender }))}
+                      className={`chunky-btn flex-1 rounded py-2 text-[10px] capitalize ${
+                        config.headGender === gender
+                          ? "border-term-pink bg-term-pink/15 text-white"
+                          : "text-zinc-400"
+                      }`}
+                    >
+                      {gender}
+                    </button>
+                  ))}
+                </div>
+                <p className="mb-2 font-mono text-[10px] text-zinc-500">Skin tone</p>
+                <div className="flex flex-wrap gap-2">
+                  {SKIN_TONES.map((tone) => (
+                    <button
+                      key={tone.id}
+                      type="button"
+                      onClick={() =>
+                        setConfig((c) => ({ ...c, skinTone: tone.color }))
+                      }
+                      className={`h-10 w-10 rounded-full border-2 transition-transform hover:scale-105 ${
+                        config.skinTone === tone.color
+                          ? "border-term-yellow ring-2 ring-term-yellow/50"
+                          : "border-zinc-600"
+                      }`}
+                      style={{ backgroundColor: tone.color }}
+                      aria-label={tone.label}
+                      title={tone.label}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+            {config.headSource === "photo" && !hasPhoto && (
+              <p className="font-mono text-[10px] text-zinc-600">
+                No profile photo linked. Use preset head instead.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <h2 className="mb-3 text-sm font-black uppercase text-term-yellow">
               Headgear
             </h2>
             {headgearLoading ? (
-              <p className="text-sm text-zinc-500">Loading headgear…</p>
+              <p className="font-mono text-xs text-zinc-500">LOADING_GEAR...</p>
             ) : (
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                 {headgearItems.map((item) => (
@@ -131,24 +206,12 @@ export default function ProfilePage() {
                     }
                     className={`rounded-lg border p-2 text-center text-[10px] ${
                       config.headgearId === item.id
-                        ? "border-sky-500 bg-sky-50 dark:bg-sky-950/40"
-                        : "border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"
+                        ? "border-term-blue bg-term-blue/10"
+                        : "border-zinc-700 bg-black/40"
                     }`}
                   >
-                    {item.textureUrl && item.id !== "none" ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.textureUrl}
-                        alt=""
-                        className="mx-auto mb-1 h-10 object-contain"
-                        style={{ imageRendering: "pixelated" }}
-                      />
-                    ) : (
-                      <div className="mx-auto mb-1 flex h-10 items-center justify-center text-zinc-400">
-                        —
-                      </div>
-                    )}
-                    <span className="line-clamp-2">{item.name}</span>
+                    <HeadgearPreviewIcon headgearId={item.id} />
+                    <span className="line-clamp-2 text-zinc-300">{item.name}</span>
                   </button>
                 ))}
               </div>
@@ -159,14 +222,26 @@ export default function ProfilePage() {
             type="button"
             disabled={saving}
             onClick={() => void handleSave()}
-            className="w-full rounded-xl bg-zinc-900 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+            className="chunky-btn btn-glow-green w-full rounded py-3 text-sm font-black"
           >
-            {saving ? "Saving…" : "Save avatar"}
+            {saving ? "WRITING..." : "SAVE AVATAR"}
           </button>
-          {message && <p className="text-sm text-emerald-600">{message}</p>}
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {message && (
+            <p className="font-mono text-xs text-term-green">{message}</p>
+          )}
+          {error && <p className="font-mono text-xs text-term-red">{error}</p>}
         </section>
-      </main>
-    </div>
+      </div>
+
+      <section className="terminal-bezel mt-8 rounded-xl border-term-red/20 p-6">
+        <h2 className="mb-2 text-sm font-black uppercase text-term-red">
+          Session Control
+        </h2>
+        <p className="mb-4 font-mono text-[10px] text-zinc-500">
+          Terminate your session and return to the login terminal.
+        </p>
+        <TerminalSignOutButton />
+      </section>
+    </TerminalShell>
   );
 }

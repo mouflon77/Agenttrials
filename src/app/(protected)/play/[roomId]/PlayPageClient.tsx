@@ -7,12 +7,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LandscapeGate } from "@/components/play/LandscapeGate";
 import { UserProfileBar } from "@/components/UserProfileBar";
 import { useAuth } from "@/contexts/AuthContext";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { useGame } from "@/hooks/useGame";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useRoom } from "@/hooks/useRoom";
 import { useTileset } from "@/hooks/useTileset";
 import { ensureRoom } from "@/lib/firestore/rooms";
-import { GRID_SIZE, resolvePlayerSpawn } from "@/types/room";
+import { applyGamePuzzleToNpc } from "@/lib/game-npc";
+import { GRID_SIZE, resolvePlaySpawn, type RoomDocument } from "@/types/room";
 
 const PlayScene = dynamic(
   () => import("@/components/room/PlayScene").then((m) => m.PlayScene),
@@ -61,18 +63,42 @@ export default function PlayPageClient({
     return null;
   }, [searchParams]);
 
-  const initialSpawn = useMemo(() => {
-    if (urlSpawn) return urlSpawn;
-    if (game && game.roomId === roomId) {
-      return { x: game.playerX, z: game.playerZ };
-    }
-    return resolvePlayerSpawn(room, null);
-  }, [urlSpawn, game, roomId, room]);
+  const initialSpawn = useMemo(
+    () => resolvePlaySpawn(room, game, roomId, urlSpawn),
+    [urlSpawn, game, roomId, room],
+  );
 
   const initialUnlockedByRoom = useMemo(
     () => (game ? { ...game.unlockedPortals } : {}),
     [game],
   );
+
+  const playRoom = useMemo((): RoomDocument | null => {
+    if (!room) return null;
+    if (!game) return room;
+    return {
+      ...room,
+      npcs: room.npcs.map((npc) => applyGamePuzzleToNpc(npc, game, roomId)),
+    };
+  }, [room, game, roomId]);
+
+  useEffect(() => {
+    if (!gameId || !roomId || !user) return;
+    const ensurePuzzles = async () => {
+      const currentUser = getFirebaseAuth().currentUser;
+      if (!currentUser) return;
+      const token = await currentUser.getIdToken();
+      await fetch(`/api/games/${encodeURIComponent(gameId)}/ensure-puzzles`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ roomId }),
+      }).catch(() => undefined);
+    };
+    void ensurePuzzles();
+  }, [gameId, roomId, user]);
 
   useEffect(() => {
     if (!gameId) {
@@ -83,11 +109,17 @@ export default function PlayPageClient({
   useEffect(() => {
     if (!game || !gameId || urlSpawn) return;
     if (game.roomId !== roomId) {
+      const spawn = resolvePlaySpawn(room, game, game.roomId, null);
+      const params = new URLSearchParams({
+        gameId,
+        spawnX: String(spawn.x),
+        spawnZ: String(spawn.z),
+      });
       router.replace(
-        `/play/${encodeURIComponent(game.roomId)}?gameId=${encodeURIComponent(gameId)}`,
+        `/play/${encodeURIComponent(game.roomId)}?${params.toString()}`,
       );
     }
-  }, [game, gameId, roomId, urlSpawn, router]);
+  }, [game, gameId, roomId, urlSpawn, room, router]);
 
   useEffect(() => {
     if (!loading && !room) {
@@ -100,27 +132,27 @@ export default function PlayPageClient({
 
   return (
     <LandscapeGate>
-      <div className="flex h-screen flex-col bg-zinc-900">
-        <header className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
+      <div className="scanlines flex h-screen flex-col bg-term-bg">
+        <header className="terminal-bezel mx-2 mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 sm:mx-4 sm:mt-3 sm:px-4 sm:py-3">
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold text-zinc-100">
-              {game?.label ?? `Room: ${roomId}`}
+            <h1 className="truncate font-mono text-sm font-bold uppercase text-term-blue">
+              {game?.label ?? `ROOM: ${roomId}`}
             </h1>
-            <p className="hidden text-xs text-zinc-500 sm:block">
-              {roomId} · Isometric play view
+            <p className="hidden font-mono text-[10px] text-zinc-500 sm:block">
+              {roomId} // ISO_VIEW
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/dashboard"
-              className="hidden rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 sm:inline-block"
+              className="chunky-btn hidden rounded px-3 py-1.5 text-[10px] text-white sm:inline-block"
             >
               Dashboard
             </Link>
             {isAdmin && (
               <Link
                 href={`/admin/editor?roomId=${roomId}`}
-                className="hidden rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 sm:inline-block"
+                className="chunky-btn capacitor-btn hidden rounded px-3 py-1.5 text-[10px] text-white sm:inline-block"
               >
                 Editor
               </Link>
@@ -136,10 +168,10 @@ export default function PlayPageClient({
               {error ?? gameError?.message}
             </p>
           )}
-          {gameId && game && room && !tilesetLoading && !gameLoading && (
+          {gameId && game && playRoom && !tilesetLoading && !gameLoading && (
             <PlayScene
               key={`${gameId}-${roomId}-${initialSpawn.x}-${initialSpawn.z}`}
-              room={room}
+              room={playRoom}
               tilesets={tilesets}
               roomId={roomId}
               gameId={gameId}

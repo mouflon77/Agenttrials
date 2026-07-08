@@ -16,6 +16,14 @@ export function gridToWorld(cell: GridCell): WorldPosition {
   return { x: cell.x + 0.5, z: cell.z + 0.5 };
 }
 
+/** Grid cell containing a world position (tile spans [n, n+1)). */
+export function worldToGrid(world: WorldPosition): GridCell {
+  return {
+    x: Math.min(GRID_SIZE - 1, Math.max(0, Math.floor(world.x))),
+    z: Math.min(GRID_SIZE - 1, Math.max(0, Math.floor(world.z))),
+  };
+}
+
 export function isInBounds(x: number, z: number): boolean {
   return x >= 0 && z >= 0 && x < GRID_SIZE && z < GRID_SIZE;
 }

@@ -15,17 +15,31 @@ export async function POST(request: Request) {
   }
 
   let startRoomId = "room_01";
+  let spawnOverride: { x: number; z: number } | undefined;
   try {
-    const body = (await request.json()) as { startRoomId?: string };
+    const body = (await request.json()) as {
+      startRoomId?: string;
+      playerSpawnX?: number;
+      playerSpawnZ?: number;
+    };
     if (body.startRoomId?.trim()) {
       startRoomId = body.startRoomId.trim();
+    }
+    if (
+      Number.isFinite(body.playerSpawnX) &&
+      Number.isFinite(body.playerSpawnZ)
+    ) {
+      spawnOverride = {
+        x: body.playerSpawnX as number,
+        z: body.playerSpawnZ as number,
+      };
     }
   } catch {
     // default start room
   }
 
   try {
-    const game = await createGame(uid, startRoomId);
+    const game = await createGame(uid, startRoomId, spawnOverride);
     return NextResponse.json({ game });
   } catch (error) {
     const message =

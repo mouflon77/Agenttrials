@@ -90,18 +90,23 @@ export default function AdminWalletsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="text-xs text-zinc-500 hover:text-zinc-300">
+    <div className="scanlines min-h-screen bg-term-bg text-zinc-100">
+      <header className="terminal-bezel mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-t-xl px-4 py-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <Link
+            href="/dashboard"
+            className="chunky-btn rounded px-3 py-1.5 text-[10px] text-white"
+          >
             ← Dashboard
           </Link>
-          <h1 className="text-sm font-semibold">Agent wallets</h1>
+          <h1 className="text-sm font-black uppercase text-term-blue">
+            Agent wallets
+          </h1>
         </div>
         <div className="flex items-center gap-3">
           <Link
             href="/admin/editor"
-            className="text-xs text-zinc-400 hover:text-zinc-200"
+            className="font-mono text-[10px] text-term-green hover:underline"
           >
             Room editor
           </Link>
@@ -109,7 +114,7 @@ export default function AdminWalletsPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl space-y-8 px-4 py-8">
+      <main className="container mx-auto max-w-3xl space-y-8 px-4 py-8">
         <section className="space-y-2">
           <h2 className="text-lg font-semibold">Create agent wallet</h2>
           <p className="text-sm text-zinc-400">

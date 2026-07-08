@@ -6,89 +6,66 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatTwitterHandle } from "@/lib/twitter";
 
-type UserProfileBarProps = {
-  className?: string;
-  variant?: "light" | "dark";
-};
-
-export function UserProfileBar({
-  className = "",
-  variant = "dark",
-}: UserProfileBarProps) {
-  const { user, userProfile, logout } = useAuth();
-  const router = useRouter();
+/** Compact profile chip for play/editor headers — links to /profile. */
+export function UserProfileBar({ className = "" }: { className?: string }) {
+  const { user, userProfile } = useAuth();
 
   if (!user) return null;
 
   const photoURL = userProfile?.photoURL ?? user.photoURL;
   const handle = formatTwitterHandle(user, userProfile);
   const displayName = userProfile?.displayName ?? user.displayName;
+  const label = handle ?? (displayName ? `@${displayName}` : "@OPERATOR");
+  const shortId = user.uid.slice(0, 4).toUpperCase();
+
+  return (
+    <Link
+      href="/profile"
+      className={`terminal-bezel flex items-center gap-2 rounded border-zinc-700 bg-zinc-900 p-1 pr-3 transition hover:brightness-110 sm:gap-3 sm:pr-4 ${className}`}
+    >
+      <div className="h-8 w-8 overflow-hidden rounded border-2 border-term-yellow bg-black sm:h-10 sm:w-10">
+        {photoURL ? (
+          <Image
+            src={photoURL}
+            alt=""
+            width={40}
+            height={40}
+            className="h-full w-full object-cover contrast-125 grayscale"
+            unoptimized
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-zinc-800 text-[10px] font-bold text-term-yellow">
+            {label.replace(/^@/, "").charAt(0).toUpperCase()}
+          </div>
+        )}
+      </div>
+      <div className="hidden min-w-0 flex-col sm:flex">
+        <span className="truncate text-xs font-bold uppercase tracking-wider text-term-yellow">
+          {label.startsWith("@") ? label : `@${label}`}
+        </span>
+        <span className="font-mono text-[9px] text-zinc-500">ID_{shortId}-X</span>
+      </div>
+    </Link>
+  );
+}
+
+/** Sign out control — used on profile page only. */
+export function TerminalSignOutButton({ className = "" }: { className?: string }) {
+  const { logout } = useAuth();
+  const router = useRouter();
 
   const handleLogout = async () => {
     await logout();
     router.replace("/login");
   };
 
-  const isLight = variant === "light";
-  const chipClass = isLight
-    ? "border-zinc-200 bg-white hover:bg-zinc-50"
-    : "border-zinc-700/80 bg-zinc-900/80 hover:bg-zinc-800/90";
-  const handleClass = isLight ? "text-zinc-900" : "text-zinc-100";
-  const subClass = isLight ? "text-zinc-500" : "text-zinc-500";
-  const signOutClass = isLight
-    ? "border-zinc-200 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-    : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200";
-  const fallbackAvatarClass = isLight
-    ? "bg-zinc-200 text-zinc-700"
-    : "bg-zinc-700 text-zinc-200";
-
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
-      <Link
-        href="/profile"
-        className={`hidden rounded-lg border px-2.5 py-1.5 text-[11px] sm:inline-block ${signOutClass}`}
-      >
-        Avatar
-      </Link>
-      <Link
-        href="/dashboard"
-        className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 pr-3 backdrop-blur ${chipClass}`}
-      >
-        {photoURL ? (
-          <Image
-            src={photoURL}
-            alt=""
-            width={28}
-            height={28}
-            className="h-7 w-7 rounded-full object-cover"
-            unoptimized
-          />
-        ) : (
-          <div
-            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${fallbackAvatarClass}`}
-          >
-            {(handle ?? displayName ?? "?").replace(/^@/, "").charAt(0).toUpperCase()}
-          </div>
-        )}
-        <div className="min-w-0 text-left">
-          {handle && (
-            <p className={`truncate text-xs font-medium ${handleClass}`}>{handle}</p>
-          )}
-          {displayName && handle !== displayName && (
-            <p className={`truncate text-[10px] ${subClass}`}>{displayName}</p>
-          )}
-          {!handle && !displayName && (
-            <p className={`text-xs ${subClass}`}>Signed in</p>
-          )}
-        </div>
-      </Link>
-      <button
-        type="button"
-        onClick={handleLogout}
-        className={`rounded-lg border px-2.5 py-1.5 text-[11px] ${signOutClass}`}
-      >
-        Sign out
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={() => void handleLogout()}
+      className={`chunky-btn rounded px-6 py-3 text-xs text-white ${className}`}
+    >
+      Sign Out
+    </button>
   );
 }

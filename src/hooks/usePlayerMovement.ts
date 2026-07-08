@@ -61,6 +61,17 @@ export function usePlayerMovement(
     if (inputPaused) snapToGrid();
   }, [inputPaused, snapToGrid]);
 
+  useEffect(() => {
+    gridRef.current = initial;
+    setGridPosition(initial);
+    const world = gridToWorld(initial);
+    visualRef.current = world;
+    setVisualPosition(world);
+    targetGridRef.current = null;
+    movingRef.current = false;
+    setIsMoving(false);
+  }, [initial.x, initial.z]);
+
   const beginMove = useCallback((dx: number, dz: number, nx: number, nz: number) => {
     setFacingRow(spriteRowFromDelta(dx, dz));
     targetGridRef.current = { x: nx, z: nz };

@@ -17,6 +17,11 @@ interface NpcPortalSidebarProps {
   painting: boolean;
   npcName: string;
   npcPrompt: string;
+  npcRole: string;
+  npcConversationalStyle: string;
+  npcSignatureQuirks: string;
+  npcPassKeywords: string;
+  npcPassHint: string;
   npcStats: GatekeeperStats;
   npcWalletAddress: string;
   npcBribeAmountSol: string;
@@ -35,6 +40,11 @@ interface NpcPortalSidebarProps {
   onSelectStandee: (id: string) => void;
   onNpcNameChange: (value: string) => void;
   onNpcPromptChange: (value: string) => void;
+  onNpcRoleChange: (value: string) => void;
+  onNpcConversationalStyleChange: (value: string) => void;
+  onNpcSignatureQuirksChange: (value: string) => void;
+  onNpcPassKeywordsChange: (value: string) => void;
+  onNpcPassHintChange: (value: string) => void;
   onNpcStatChange: (key: keyof GatekeeperStats, value: number) => void;
   onNpcBribeAmountSolChange: (value: string) => void;
   onSelectAgentWallet: (walletId: string) => void;
@@ -60,6 +70,11 @@ export function NpcPortalSidebar({
   painting,
   npcName,
   npcPrompt,
+  npcRole,
+  npcConversationalStyle,
+  npcSignatureQuirks,
+  npcPassKeywords,
+  npcPassHint,
   npcStats,
   npcWalletAddress,
   npcBribeAmountSol,
@@ -78,6 +93,11 @@ export function NpcPortalSidebar({
   onSelectStandee,
   onNpcNameChange,
   onNpcPromptChange,
+  onNpcRoleChange,
+  onNpcConversationalStyleChange,
+  onNpcSignatureQuirksChange,
+  onNpcPassKeywordsChange,
+  onNpcPassHintChange,
   onNpcStatChange,
   onNpcBribeAmountSolChange,
   onSelectAgentWallet,
@@ -103,8 +123,8 @@ export function NpcPortalSidebar({
     return (
       <div className="mb-4 space-y-3">
         <p className="text-[10px] text-zinc-500">
-          Set name, disposition, and stats, then click the floor to place a new
-          gatekeeper — or select one below / in the room to edit and save.
+          Set name, voice, disposition, and stats, then click the floor to place
+          a new gatekeeper — or select one below / in the room to edit and save.
         </p>
         <label className="text-xs text-zinc-400">Standee sprite</label>
         <div className="grid max-h-32 grid-cols-3 gap-1 overflow-y-auto">
@@ -162,7 +182,35 @@ export function NpcPortalSidebar({
           className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
           placeholder="The Administrative Assistant"
         />
+        <label className="text-xs text-zinc-400">Role / perspective</label>
+        <textarea
+          value={npcRole}
+          onChange={(e) => onNpcRoleChange(e.target.value)}
+          rows={2}
+          className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
+          placeholder="A snarky, tech-savvy startup co-founder guarding the floor."
+        />
+        <label className="text-xs text-zinc-400">Conversational style</label>
+        <input
+          type="text"
+          value={npcConversationalStyle}
+          onChange={(e) => onNpcConversationalStyleChange(e.target.value)}
+          className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
+          placeholder="Blunt, dry humor, casual — not corporate."
+        />
+        <label className="text-xs text-zinc-400">Signature quirks & idioms</label>
+        <textarea
+          value={npcSignatureQuirks}
+          onChange={(e) => onNpcSignatureQuirksChange(e.target.value)}
+          rows={2}
+          className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
+          placeholder="Yeah, Got it, Look — natural openers instead of robotic filler."
+        />
         <label className="text-xs text-zinc-400">Disposition / conditions</label>
+        <p className="text-[9px] leading-relaxed text-zinc-600">
+          Generated fresh for each new game from the personality fields above.
+          Optional fallback template if AI generation is unavailable.
+        </p>
         <textarea
           value={npcPrompt}
           onChange={(e) => onNpcPromptChange(e.target.value)}
@@ -170,9 +218,47 @@ export function NpcPortalSidebar({
           className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
           placeholder="Bored, protective of their time, and expects you to be demanding."
         />
+        <div className="space-y-2 rounded-lg border border-amber-900/40 bg-amber-950/20 p-2">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-amber-400/90">
+            Portal pass puzzle
+          </p>
+          <p className="text-[9px] leading-relaxed text-amber-200/70">
+            Keywords, hint, and stats are randomized per new game from the NPC
+            personality. Templates below are fallbacks only.
+          </p>
+          <label className="text-xs text-zinc-400">
+            Pass keywords (comma-separated)
+          </label>
+          <input
+            type="text"
+            value={npcPassKeywords}
+            onChange={(e) => onNpcPassKeywordsChange(e.target.value)}
+            className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
+            placeholder="respect, patience, understand"
+          />
+          <p className="text-[9px] text-zinc-600">
+            If the player&apos;s message contains any keyword, the portal opens
+            immediately (case-insensitive).
+          </p>
+          <label className="text-xs text-zinc-400">Hint (shown when they ask)</label>
+          <textarea
+            value={npcPassHint}
+            onChange={(e) => onNpcPassHintChange(e.target.value)}
+            rows={3}
+            className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
+            placeholder="Tell me you respect my time and you're willing to be patient..."
+          />
+          <p className="text-[9px] text-zinc-600">
+            Used when the player says &quot;hint&quot;, &quot;clue&quot;, etc.
+            Give a real answer, not a dodge.
+          </p>
+        </div>
         <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
           <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
             Negotiation stats (0–100)
+          </p>
+          <p className="text-[9px] leading-relaxed text-zinc-600">
+            Scaled by floor level each new game. Editor values are fallbacks.
           </p>
           {GATEKEEPER_STAT_META.map(({ key, label, hint }) => (
             <div key={key} className="space-y-0.5">

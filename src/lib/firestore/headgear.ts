@@ -1,15 +1,16 @@
 import { collection, onSnapshot, setDoc, doc, type Unsubscribe } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
+import { LOCAL_HEADGEAR_TEXTURES, resolveHeadgearTextureUrl } from "@/lib/headgear-assets";
 import type { HeadgearItem } from "@/types/avatar";
 
 export const HEADGEAR_COLLECTION = "headgear";
 
 const DEFAULT_HEADGEAR: HeadgearItem[] = [
   { id: "none", name: "None", textureUrl: "" },
-  { id: "cap_red", name: "Red Cap", textureUrl: "" },
-  { id: "cap_blue", name: "Blue Cap", textureUrl: "" },
-  { id: "horns", name: "Horns", textureUrl: "" },
-  { id: "crown", name: "Crown", textureUrl: "" },
+  { id: "cap_red", name: "Red Cap", textureUrl: LOCAL_HEADGEAR_TEXTURES.cap_red },
+  { id: "cap_blue", name: "Blue Cap", textureUrl: LOCAL_HEADGEAR_TEXTURES.cap_blue },
+  { id: "horns", name: "Horns", textureUrl: LOCAL_HEADGEAR_TEXTURES.horns },
+  { id: "crown", name: "Crown", textureUrl: LOCAL_HEADGEAR_TEXTURES.crown },
 ];
 
 export function subscribeToHeadgear(
@@ -30,7 +31,8 @@ export function subscribeToHeadgear(
         items.push({
           id: d.id,
           name: data.name ?? d.id,
-          textureUrl: data.textureUrl ?? "",
+          textureUrl:
+            resolveHeadgearTextureUrl(d.id, data.textureUrl) ?? data.textureUrl ?? "",
         });
       });
       items.sort((a, b) => a.name.localeCompare(b.name));
@@ -52,5 +54,5 @@ export function getHeadgearTexture(
   headgearId: string,
 ): string | undefined {
   const item = items.find((h) => h.id === headgearId);
-  return item?.textureUrl || undefined;
+  return resolveHeadgearTextureUrl(headgearId, item?.textureUrl);
 }

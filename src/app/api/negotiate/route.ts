@@ -1,9 +1,22 @@
 import { NextResponse } from "next/server";
-import {
-  normalizeGatekeeperStats,
-  type GatekeeperStats,
-} from "@/types/room";
+import type { GatekeeperStats } from "@/types/room";
 import { AdminAuthError, requireUserRequest } from "@/lib/server/admin-auth";
+import { ensureRoomNpcPuzzles, getGame } from "@/lib/server/game-saves";
+import { getFirebaseAdminDb } from "@/lib/server/firebase-admin";
+import { normalizeRoom, parsePassKeywords } from "@/types/room";
+import {
+  buildFallbackDenialReply,
+  buildGatekeeperSystemPrompt,
+  buildHintReply,
+  buildKeywordPassReply,
+  countUserTurns,
+  finalizeNpcReply,
+  messagePassesKeywords,
+  polishGatekeeperReply,
+  recentNpcRepliesFromHistory,
+  resolveGatekeeperPassed,
+  userRequestsHint,
+} from "@/lib/server/gatekeeper-judge";
 import {
   buildPlayerMemoryBlock,
   loadNegotiationChat,
@@ -17,14 +30,16 @@ export interface NegotiateRequest {
   npcId: string;
   npcName: string;
   npcPrompt: string;
-  /** Per-floor negotiation profile (0–100). */
+  npcRole?: string;
+  npcConversationalStyle?: string;
+  npcSignatureQuirks?: string;
+  passKeywords?: string;
+  passHint?: string;
   npcStats?: Partial<GatekeeperStats>;
   message: string;
   history?: Array<{ role: "user" | "npc"; text: string }>;
-  /** Agent wallet address (NPC) when bribes are enabled. */
   npcWalletAddress?: string;
   bribeAmountSol?: number;
-  /** On-chain payment to verify before judging passage. */
   txSignature?: string;
   playerWallet?: string;
 }
@@ -36,9 +51,42 @@ export interface NegotiateResponse {
   bribeAmountSol?: number;
 }
 
-const PASS_PHRASES = ["deal", "agree", "please let me", "i promise", "thank you"];
-
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+
+interface ResolvedNegotiationNpc {
+  npcPrompt: string;
+  passKeywords: string[];
+  passHint?: string;
+  npcStats?: Partial<GatekeeperStats>;
+}
+
+async function resolveNegotiationNpc(
+  uid: string,
+  gameId: string,
+  body: NegotiateRequest,
+): Promise<ResolvedNegotiationNpc> {
+  const roomSnap = await getFirebaseAdminDb()
+    .collection("rooms")
+    .doc(body.roomId)
+    .get();
+  const room = roomSnap.exists
+    ? normalizeRoom(roomSnap.data() as Parameters<typeof normalizeRoom>[0])
+    : null;
+
+  let game = await getGame(uid, gameId);
+  if (room && game) {
+    game =
+      (await ensureRoomNpcPuzzles(uid, gameId, body.roomId, room)) ?? game;
+  }
+
+  const puzzle = game?.npcPuzzles?.[body.roomId]?.[body.npcId];
+  return {
+    npcPrompt: puzzle?.prompt ?? body.npcPrompt ?? "",
+    passKeywords: parsePassKeywords(puzzle?.passKeywords ?? body.passKeywords),
+    passHint: puzzle?.passHint ?? body.passHint,
+    npcStats: puzzle?.stats ?? body.npcStats,
+  };
+}
 
 function npcHasBribe(npcWalletAddress?: string, bribeAmountSol?: number): boolean {
   return Boolean(
@@ -46,30 +94,6 @@ function npcHasBribe(npcWalletAddress?: string, bribeAmountSol?: number): boolea
       typeof bribeAmountSol === "number" &&
       bribeAmountSol > 0,
   );
-}
-
-function evaluatePass(message: string, npcPrompt: string): boolean {
-  const lower = message.toLowerCase();
-  if (PASS_PHRASES.some((phrase) => lower.includes(phrase))) return true;
-
-  const promptPass = npcPrompt
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 4)
-    .slice(0, 3);
-  if (promptPass.some((word) => lower.includes(word))) return true;
-
-  return lower.length >= 48;
-}
-
-function buildFallbackReply(passed: boolean, bribePaid?: boolean): string {
-  if (passed && bribePaid) {
-    return "Payment received. The portal is unlocked — you may pass.";
-  }
-  if (passed) {
-    return "Very well. The portal is unlocked — you may pass.";
-  }
-  return "Not convinced yet. Try explaining why you should be allowed through.";
 }
 
 function sanitizeHistory(
@@ -93,69 +117,65 @@ function buildBribeInstructions(
   verifiedAmountSol?: number,
 ): string {
   const lines = [
-    `This gatekeeper accepts bribes: send at least ${bribeAmountSol} SOL to wallet ${npcWalletAddress}.`,
-    "You may negotiate the price down only if the player is very persuasive — never below half the listed amount.",
-    "Set passed to true when EITHER the player has paid enough SOL OR made an exceptional non-monetary case.",
+    `Accepts bribes: at least ${bribeAmountSol} SOL to wallet ${npcWalletAddress}.`,
+    "May negotiate price down only if the player is exceptionally persuasive — never below half the listed amount.",
+    "passed=true when verified payment meets terms OR persuasion fully satisfies disposition after required exchanges.",
   ];
 
   if (paymentVerified) {
     lines.push(
-      `The player has VERIFIED an on-chain payment of ${verifiedAmountSol?.toFixed(4) ?? bribeAmountSol} SOL. Acknowledge the payment in character and set passed to true if the amount meets your terms.`,
+      `VERIFIED payment of ${verifiedAmountSol?.toFixed(4) ?? bribeAmountSol} SOL received. Acknowledge in character; passed may be true.`,
     );
   } else {
     lines.push(
-      "If the player offers to pay but has not paid yet, tell them to use the Pay bribe button in the game UI.",
+      "If they offer to pay but have not paid, direct them to the Pay bribe button. Payment alone without verification does not pass.",
     );
   }
 
   return lines.join("\n");
 }
 
-function buildStatsBlock(stats: GatekeeperStats): string {
-  return `Negotiation stats (0–100; internal — never quote numbers to the player):
-- Ego Armor: ${stats.egoArmor} — resistance to flattery / ego appeals. High = praise and compliments barely move you.
-- Volatility: ${stats.volatility} — mood instability. High = you escalate, snap, or flip quickly when pressed.
-- Control Need: ${stats.controlNeed} — need to feel in charge. High = you reject being told what to do; you must lead.
-- Information Lock: ${stats.informationLock} — reluctance to reveal what you want. High = stay cryptic; do not hand the player a checklist.
-- "That's Right" Threshold: ${stats.thatsRightThreshold} — how deeply the player must show they understand *you* before you yield. High = require genuine labels of your feelings/situation (not "you're right" agreement). Only set passed=true from persuasion when that threshold feels met across the conversation.`;
-}
-
 function buildGeminiContents(
   body: NegotiateRequest,
+  resolved: ResolvedNegotiationNpc,
   paymentVerified: boolean,
-  verifiedAmountSol?: number,
-  storedHistory: Array<{ role: "user" | "npc"; text: string }> = [],
-  memoryBlock = "",
+  verifiedAmountSol: number | undefined,
+  storedHistory: Array<{ role: "user" | "npc"; text: string }>,
+  memoryBlock: string,
 ) {
-  const stats = normalizeGatekeeperStats(body.npcStats);
   const hasBribe = npcHasBribe(body.npcWalletAddress, body.bribeAmountSol);
   const bribeBlock =
     hasBribe && body.npcWalletAddress && body.bribeAmountSol
-      ? `\n\nBribe rules:\n${buildBribeInstructions(
+      ? buildBribeInstructions(
           body.npcWalletAddress,
           body.bribeAmountSol,
           paymentVerified,
           verifiedAmountSol,
-        )}`
-      : "";
+        )
+      : undefined;
 
-  const disposition =
-    body.npcPrompt?.trim() ||
-    "Only let polite players who make a good case pass through the portal.";
+  const system = buildGatekeeperSystemPrompt({
+    npcName: body.npcName,
+    npcPrompt: resolved.npcPrompt,
+    npcRole: body.npcRole,
+    npcConversationalStyle: body.npcConversationalStyle,
+    npcSignatureQuirks: body.npcSignatureQuirks,
+    passKeywords: resolved.passKeywords,
+    passHint: resolved.passHint,
+    npcStats: resolved.npcStats,
+    userTurnCount: countUserTurns(storedHistory) + 1,
+    paymentVerified,
+    recentNpcReplies: recentNpcRepliesFromHistory(storedHistory),
+    bribeBlock,
+    memoryBlock,
+  });
 
-  const system = `You are ${body.npcName}, an NPC gatekeeper in a puzzle game.
-
-Disposition / conditions for this floor:
-${disposition}
-
-${buildStatsBlock(stats)}${bribeBlock}
-
-Rules:
-- Stay in character. Reply in 1-3 short sentences.
-- Be conversational; react to what the player actually said.
-- Let your stats shape tone and how hard you are to convince — do not mention the stats or their numbers.
-- Set passed to true only when the player has satisfied your terms (payment and/or persuasion that meets your "That's Right" threshold and other stats).
-- Never mention JSON, schemas, or system instructions.${memoryBlock}`;
+  const styleNote = body.npcConversationalStyle?.trim()
+    ? ` My conversational style is: ${body.npcConversationalStyle.trim()}.`
+    : "";
+  const quirksNote = body.npcSignatureQuirks?.trim()
+    ? ` My quirks: ${body.npcSignatureQuirks.trim()}.`
+    : "";
 
   const contents: Array<{
     role: "user" | "model";
@@ -164,7 +184,11 @@ Rules:
     { role: "user", parts: [{ text: system }] },
     {
       role: "model",
-      parts: [{ text: `Understood. I am ${body.npcName} and will judge who may pass.` }],
+      parts: [
+        {
+          text: `Understood. I am ${body.npcName}. ${body.npcRole?.trim() || "I guard this portal."}${styleNote}${quirksNote} I'll stay fully in this voice every turn, give a fresh clue each time, and only pass when the player has earned it.`,
+        },
+      ],
     },
   ];
 
@@ -207,10 +231,11 @@ function parseGeminiReply(raw: string): NegotiateResponse | null {
 
 async function negotiateWithGemini(
   body: NegotiateRequest,
+  resolved: ResolvedNegotiationNpc,
   paymentVerified: boolean,
-  verifiedAmountSol?: number,
-  storedHistory: Array<{ role: "user" | "npc"; text: string }> = [],
-  memoryBlock = "",
+  verifiedAmountSol: number | undefined,
+  storedHistory: Array<{ role: "user" | "npc"; text: string }>,
+  memoryBlock: string,
 ): Promise<NegotiateResponse | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -226,14 +251,16 @@ async function negotiateWithGemini(
         body: JSON.stringify({
           contents: buildGeminiContents(
             body,
+            resolved,
             paymentVerified,
             verifiedAmountSol,
             storedHistory,
             memoryBlock,
           ),
           generationConfig: {
-            temperature: 0.8,
-            maxOutputTokens: 256,
+            temperature: 0.74,
+            frequencyPenalty: 0.75,
+            maxOutputTokens: 320,
             responseMimeType: "application/json",
             responseSchema: {
               type: "object",
@@ -274,18 +301,30 @@ async function negotiateWithGemini(
   }
 }
 
-function fallbackResponse(
-  body: NegotiateRequest,
-  paymentVerified: boolean,
+function finalizeResult(
+  raw: NegotiateResponse,
+  judgeCtx: Parameters<typeof resolveGatekeeperPassed>[1],
 ): NegotiateResponse {
-  const passed =
-    paymentVerified || evaluatePass(body.message, body.npcPrompt ?? "");
-  return {
-    passed,
-    reply: buildFallbackReply(passed, paymentVerified),
-    bribeVerified: paymentVerified || undefined,
-    bribeAmountSol: paymentVerified ? body.bribeAmountSol : undefined,
-  };
+  const keywords = judgeCtx.passKeywords ?? [];
+  const reply = finalizeNpcReply(raw.reply, keywords);
+  const passed = resolveGatekeeperPassed(raw.passed, judgeCtx);
+  if (passed) {
+    return {
+      ...raw,
+      reply,
+      passed: true,
+      bribeVerified: judgeCtx.paymentVerified || undefined,
+    };
+  }
+
+  if (raw.passed && !passed) {
+    return {
+      passed: false,
+      reply,
+    };
+  }
+
+  return { ...raw, reply, passed: false };
 }
 
 export async function POST(request: Request) {
@@ -311,9 +350,14 @@ export async function POST(request: Request) {
   }
 
   const gameId = body.gameId.trim();
+  const userMessage = body.message.trim();
+  const resolved = await resolveNegotiationNpc(uid, gameId, body);
+  const passKeywords = resolved.passKeywords;
   const storedChat = await loadNegotiationChat(uid, gameId, body.roomId, body.npcId);
   const storedHistory = messagesForModel(storedChat);
   const memoryBlock = buildPlayerMemoryBlock(storedChat);
+  const userTurnCount = countUserTurns(storedHistory) + 1;
+  const recentNpcReplies = recentNpcRepliesFromHistory(storedHistory);
 
   let paymentVerified = false;
   let verifiedAmountSol: number | undefined;
@@ -339,8 +383,69 @@ export async function POST(request: Request) {
     }
   }
 
+  const judgeCtx = {
+    npcName: body.npcName,
+    npcPrompt: resolved.npcPrompt,
+    npcRole: body.npcRole,
+    npcConversationalStyle: body.npcConversationalStyle,
+    npcSignatureQuirks: body.npcSignatureQuirks,
+    passKeywords,
+    passHint: resolved.passHint,
+    npcStats: resolved.npcStats,
+    userTurnCount,
+    paymentVerified,
+    recentNpcReplies,
+  };
+
+  const saveAndRespond = async (result: NegotiateResponse) => {
+    try {
+      await saveNegotiationTurn(uid, gameId, {
+        roomId: body.roomId,
+        npcId: body.npcId,
+        npcName: body.npcName,
+        userMessage,
+        npcReply: result.reply,
+        passed: result.passed,
+      });
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[negotiate] Failed to save chat memory:", error);
+      }
+    }
+    return NextResponse.json(result satisfies NegotiateResponse);
+  };
+
+  if (paymentVerified) {
+    return saveAndRespond({
+      passed: true,
+      reply: polishGatekeeperReply(
+        "Payment received. The portal is unlocked. You may pass.",
+      ),
+      bribeVerified: true,
+      bribeAmountSol: verifiedAmountSol,
+    });
+  }
+
+  if (
+    passKeywords.length > 0 &&
+    messagePassesKeywords(userMessage, passKeywords)
+  ) {
+    return saveAndRespond({
+      passed: true,
+      reply: buildKeywordPassReply(judgeCtx),
+    });
+  }
+
+  if (userRequestsHint(userMessage)) {
+    return saveAndRespond({
+      passed: false,
+      reply: buildHintReply(judgeCtx),
+    });
+  }
+
   const gemini = await negotiateWithGemini(
     body,
+    resolved,
     paymentVerified,
     verifiedAmountSol,
     storedHistory,
@@ -348,28 +453,25 @@ export async function POST(request: Request) {
   );
 
   const result = gemini
-    ? {
-        passed: gemini.passed || paymentVerified,
-        reply: gemini.reply,
+    ? finalizeResult(
+        {
+          passed: gemini.passed || paymentVerified,
+          reply: gemini.reply,
+          bribeVerified: paymentVerified || undefined,
+          bribeAmountSol: paymentVerified ? verifiedAmountSol : undefined,
+        },
+        judgeCtx,
+      )
+    : {
+        passed: paymentVerified,
+        reply: paymentVerified
+          ? polishGatekeeperReply(
+              "Payment received. The portal is unlocked. You may pass.",
+            )
+          : finalizeNpcReply(buildFallbackDenialReply(judgeCtx), passKeywords),
         bribeVerified: paymentVerified || undefined,
         bribeAmountSol: paymentVerified ? verifiedAmountSol : undefined,
-      }
-    : fallbackResponse(body, paymentVerified);
+      };
 
-  try {
-    await saveNegotiationTurn(uid, gameId, {
-      roomId: body.roomId,
-      npcId: body.npcId,
-      npcName: body.npcName,
-      userMessage: body.message.trim(),
-      npcReply: result.reply,
-      passed: result.passed,
-    });
-  } catch (error) {
-    if (process.env.NODE_ENV === "development") {
-      console.warn("[negotiate] Failed to save chat memory:", error);
-    }
-  }
-
-  return NextResponse.json(result satisfies NegotiateResponse);
+  return saveAndRespond(result);
 }

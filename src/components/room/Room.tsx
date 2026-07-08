@@ -7,8 +7,10 @@ import {
   WALL_HEIGHT,
   WALL_SIDES,
   floorIndex,
+  getOverlayFootprint,
+  getWallOverlayTransform,
   getWallTransform,
-  isActiveOverlay,
+  listWallOverlayPlacements,
   wallKey,
 } from "@/types/room";
 import type { AvatarConfig } from "@/types/avatar";
@@ -52,8 +54,8 @@ interface RoomProps {
   playerVisualPosition?: WorldPosition | null;
   playerAvatarConfig?: AvatarConfig | null;
   playerPhotoURL?: string | null;
-  playerHeadgearTextureUrl?: string;
   playerDisplayName?: string | null;
+  playerFacingRow?: number;
   unlockedPortalIds?: Set<string>;
   onPortalEnter?: (portalId: string) => void;
   onFloorStep?: (x: number, z: number) => void;
@@ -79,21 +81,57 @@ function resolveTile(
     textureUrl: entry.textureUrl || undefined,
     pixelWidth: entry.pixelWidth ?? 64,
     pixelHeight: entry.pixelHeight ?? 64,
+    width: entry.width ?? 1,
+    depth: entry.depth ?? 1,
   };
 }
 
-function isWallHighlighted(
+function isWallCellHighlighted(
   brushPreview: RoomProps["brushPreview"],
   category: "wall" | "door" | "window",
+  tilesets: TilesetRegistry,
   side: WallSide,
   along: number,
   height: number,
 ): boolean {
+  if (brushPreview?.category !== category) return false;
+  const cell = brushPreview.wallCell;
+  if (!cell || cell.side !== side) return false;
+  if (category === "wall") {
+    return cell.along === along && cell.height === height;
+  }
+  const hoverSpan = getOverlayFootprint(
+    getTile(tilesets, category, brushPreview.tileId),
+  );
   return (
-    brushPreview?.category === category &&
-    brushPreview.wallCell?.side === side &&
-    brushPreview.wallCell?.along === along &&
-    brushPreview.wallCell?.height === height
+    along >= cell.along &&
+    along < cell.along + hoverSpan.along &&
+    height >= cell.height &&
+    height < cell.height + hoverSpan.height
+  );
+}
+
+function isOverlayPlacementHighlighted(
+  brushPreview: RoomProps["brushPreview"],
+  kind: "door" | "window",
+  tilesets: TilesetRegistry,
+  side: WallSide,
+  along: number,
+  height: number,
+  alongSpan: number,
+  heightSpan: number,
+): boolean {
+  if (brushPreview?.category !== kind) return false;
+  const cell = brushPreview.wallCell;
+  if (!cell || cell.side !== side) return false;
+  const hoverSpan = getOverlayFootprint(
+    getTile(tilesets, kind, brushPreview.tileId),
+  );
+  return !(
+    cell.along + hoverSpan.along <= along ||
+    along + alongSpan <= cell.along ||
+    cell.height + hoverSpan.height <= height ||
+    height + heightSpan <= cell.height
   );
 }
 
@@ -122,8 +160,8 @@ export function Room({
   playerVisualPosition = null,
   playerAvatarConfig = null,
   playerPhotoURL = null,
-  playerHeadgearTextureUrl,
   playerDisplayName = null,
+  playerFacingRow = 2,
   unlockedPortalIds,
   onPortalEnter,
   onFloorStep,
@@ -175,46 +213,21 @@ export function Room({
   }, [room.wallGrid]);
 
   const overlayTiles = useMemo(() => {
-    const tiles: Array<{
-      side: WallSide;
-      along: number;
-      height: number;
-      key: string;
-      tileId: string;
-      kind: "door" | "window";
-    }> = [];
+    const doorFootprint = (tileId: string) =>
+      getOverlayFootprint(getTile(tilesets, "door", tileId));
+    const windowFootprint = (tileId: string) =>
+      getOverlayFootprint(getTile(tilesets, "window", tileId));
 
-    for (const side of WALL_SIDES) {
-      for (let along = 0; along < GRID_SIZE; along++) {
-        for (let height = 0; height < WALL_HEIGHT; height++) {
-          const key = wallKey(side, along, height);
-          const doorId = room.doorGrid[key];
-          const windowId = room.windowGrid[key];
-          if (isActiveOverlay(doorId)) {
-            tiles.push({
-              side,
-              along,
-              height,
-              key,
-              tileId: doorId,
-              kind: "door",
-            });
-          }
-          if (isActiveOverlay(windowId)) {
-            tiles.push({
-              side,
-              along,
-              height,
-              key,
-              tileId: windowId,
-              kind: "window",
-            });
-          }
-        }
-      }
-    }
-    return tiles;
-  }, [room.doorGrid, room.windowGrid]);
+    const doors = listWallOverlayPlacements(room.doorGrid, doorFootprint).map(
+      (placement) => ({ ...placement, kind: "door" as const }),
+    );
+    const windows = listWallOverlayPlacements(
+      room.windowGrid,
+      windowFootprint,
+    ).map((placement) => ({ ...placement, kind: "window" as const }));
+
+    return [...doors, ...windows];
+  }, [room.doorGrid, room.windowGrid, tilesets]);
 
   const wallClickHandler =
     editorMode === "wall" || editorMode === "door" || editorMode === "window"
@@ -288,9 +301,10 @@ export function Room({
         {wallTiles.map(({ side, along, height, key, tileId }) => {
           const resolved = resolveTile(tilesets, "wall", tileId);
           const { position, rotation } = getWallTransform(side, along, height);
-          const highlighted = isWallHighlighted(
+          const highlighted = isWallCellHighlighted(
             brushPreview,
             "wall",
+            tilesets,
             side,
             along,
             height,
@@ -322,21 +336,40 @@ export function Room({
           );
         })}
 
-        {overlayTiles.map(({ side, along, height, key, tileId, kind }) => {
+        {overlayTiles.map(
+          ({
+            side,
+            along,
+            height,
+            key,
+            tileId,
+            kind,
+            alongSpan,
+            heightSpan,
+          }) => {
           const resolved = resolveTile(tilesets, kind, tileId);
-          const { position, rotation } = getWallTransform(side, along, height);
+          const { position, rotation } = getWallOverlayTransform(
+            side,
+            along,
+            height,
+            alongSpan,
+            heightSpan,
+          );
           const inset: [number, number, number] = [...position];
           if (side === "back") inset[2] -= 0.02;
           if (side === "front") inset[2] += 0.02;
           if (side === "left") inset[0] += 0.02;
           if (side === "right") inset[0] -= 0.02;
 
-          const highlighted = isWallHighlighted(
+          const highlighted = isOverlayPlacementHighlighted(
             brushPreview,
             kind,
+            tilesets,
             side,
             along,
             height,
+            alongSpan,
+            heightSpan,
           );
           const overlayPickable =
             (kind === "door" && editorMode === "door") ||
@@ -348,8 +381,8 @@ export function Room({
               textureUrl={resolved?.textureUrl}
               pixelWidth={resolved?.pixelWidth}
               pixelHeight={resolved?.pixelHeight}
-              planeWidth={1}
-              planeHeight={1}
+              planeWidth={alongSpan}
+              planeHeight={heightSpan}
               highlighted={highlighted}
               highlightEraser={wallEraserActive && highlighted}
               previewTextureUrl={brushResolved?.textureUrl}
@@ -361,7 +394,8 @@ export function Room({
               onErase={() => wallEraseHandler?.(side, along, height)}
             />
           );
-        })}
+        },
+        )}
 
         {room.furniture.map((item) => (
           <FurnitureMesh
@@ -407,8 +441,8 @@ export function Room({
             visualPosition={playerVisualPosition}
             avatarConfig={playerAvatarConfig}
             photoURL={playerPhotoURL}
-            headgearTextureUrl={playerHeadgearTextureUrl}
             displayName={playerDisplayName}
+            facingRow={playerFacingRow}
           />
         )}
 

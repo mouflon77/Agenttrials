@@ -101,7 +101,7 @@ export function buildPlayerMemoryBlock(chat: NegotiationChatDocument | null): st
 
   if (chat.passed) {
     parts.push(
-      "This player has already earned passage on a prior visit. You may acknowledge that, but still stay in character if they talk again.",
+      "This player earned passage earlier in this game. If they talk again, stay in character but do not re-litigate from scratch unless they give you new reason to revoke access.",
     );
   }
 

@@ -72,7 +72,9 @@ export async function serverUploadTileTexture(
     name,
     textureUrl,
     width: Math.round(gridWidth ?? (category === "furniture" ? 2 : 1)),
-    depth: Math.round(gridDepth ?? 1),
+    depth: Math.round(
+      gridDepth ?? (category === "door" ? 2 : category === "furniture" ? 1 : 1),
+    ),
     pixelWidth: pxW,
     pixelHeight: pxH,
     ...(isSvg ? { format: "svg" as const } : {}),

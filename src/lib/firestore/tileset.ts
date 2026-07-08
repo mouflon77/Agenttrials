@@ -213,8 +213,13 @@ const DEFAULT_TILES: Record<
 > = {
   floor: { default_floor: tile("Default Floor") },
   wall: { default_wall: tile("Default Wall") },
-  door: { default_door: tile("Default Door") },
-  window: { default_window: tile("Default Window") },
+  door: { default_door: tile("Default Door", 1, 2), default_door_double: tile("Double Door", 2, 2) },
+  window: {
+    default_window: tile("Default Window", 1, 1),
+    default_window_2w: tile("Window 2 Wide", 2, 1),
+    default_window_2h: tile("Window 2 Tall", 1, 2),
+    default_window_2x2: tile("Window 2×2", 2, 2),
+  },
   furniture: {
     sofa_2x1: tile("Sofa 2x1", 2, 1),
     desk_2x2: tile("Large Desk 2x2", 2, 2),

@@ -1,26 +1,39 @@
 "use client";
 
 import Image from "next/image";
-import type { AvatarConfig } from "@/types/avatar";
-import type { HeadgearItem } from "@/types/avatar";
+import { useMemo } from "react";
+import { HeadgearPreviewIcon } from "@/components/profile/HeadgearPreviewIcon";
+import {
+  createPresetHeadDataUrl,
+  shouldUsePresetHead,
+} from "@/lib/avatar-head-texture";
+import { DEFAULT_SKIN_TONE, type AvatarConfig } from "@/types/avatar";
 
 interface AvatarPreview2DProps {
   config: AvatarConfig;
   photoURL?: string | null;
-  headgear?: HeadgearItem;
   size?: "sm" | "lg";
 }
 
 export function AvatarPreview2D({
   config,
   photoURL,
-  headgear,
   size = "lg",
 }: AvatarPreview2DProps) {
   const frame = size === "lg" ? "h-48 w-36" : "h-24 w-20";
   const body = size === "lg" ? "h-28 w-16" : "h-14 w-8";
   const face = size === "lg" ? "h-16 w-16" : "h-8 w-8";
-  const gear = size === "lg" ? "h-10" : "h-6";
+
+  const usePreset = shouldUsePresetHead(config.headSource, photoURL);
+  const presetSrc = useMemo(() => {
+    if (!usePreset || typeof document === "undefined") return null;
+    return createPresetHeadDataUrl(
+      config.headGender ?? "male",
+      config.skinTone ?? DEFAULT_SKIN_TONE,
+    );
+  }, [usePreset, config.headGender, config.skinTone]);
+
+  const showHeadgear = config.headgearId !== "none";
 
   return (
     <div
@@ -29,20 +42,27 @@ export function AvatarPreview2D({
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_70%,transparent_20%,rgba(0,0,0,0.45)_100%)]" />
 
       <div className="relative z-10 flex flex-col items-center">
-        {headgear?.textureUrl && config.headgearId !== "none" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={headgear.textureUrl}
-            alt=""
-            className={`${gear} mb-[-0.35rem] w-auto object-contain`}
-          />
-        ) : null}
+        {showHeadgear && (
+          <div className="relative z-20 -mb-3 w-full">
+            <HeadgearPreviewIcon headgearId={config.headgearId} />
+          </div>
+        )}
 
         <div
-          className={`${face} overflow-hidden rounded-full border border-white/25 bg-zinc-300 shadow-[0_0_18px_var(--glow)]`}
-          style={{ ["--glow" as string]: `${config.bodyColor}99` }}
+          className={`${face} relative overflow-hidden rounded-full border border-white/25 shadow-[0_0_18px_var(--glow)]`}
+          style={{
+            backgroundColor: config.skinTone ?? DEFAULT_SKIN_TONE,
+            ["--glow" as string]: `${config.bodyColor}99`,
+          }}
         >
-          {photoURL ? (
+          {usePreset && presetSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={presetSrc}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : photoURL ? (
             <Image
               src={photoURL}
               alt=""
@@ -52,7 +72,10 @@ export function AvatarPreview2D({
               unoptimized
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-xs text-zinc-500">
+            <div
+              className="flex h-full w-full items-center justify-center text-xs text-zinc-600"
+              style={{ backgroundColor: config.skinTone ?? DEFAULT_SKIN_TONE }}
+            >
               ?
             </div>
           )}

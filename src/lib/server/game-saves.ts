@@ -1,13 +1,19 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
+import { discoverGameRooms } from "@/lib/server/discover-game-rooms";
 import { getFirebaseAdminDb } from "@/lib/server/firebase-admin";
+import {
+  generateNpcPuzzles,
+  puzzlesFromRooms,
+} from "@/lib/server/npc-puzzle-generator";
 import {
   MAX_SAVED_GAMES,
   normalizeGameSave,
   type GameSaveDocument,
   type GameSavePatch,
+  type GeneratedNpcPuzzle,
 } from "@/types/game";
-import { normalizeRoom, resolvePlayerSpawn } from "@/types/room";
+import { normalizeRoom, resolvePlayerSpawn, type RoomDocument } from "@/types/room";
 
 function gamesCollection(uid: string) {
   return getFirebaseAdminDb().collection("users").doc(uid).collection("games");
@@ -49,9 +55,56 @@ function defaultGameLabel(existingCount: number): string {
   return `Game ${existingCount + 1} · ${date}`;
 }
 
+function mergeNpcPuzzles(
+  existing: Record<string, Record<string, GeneratedNpcPuzzle>>,
+  generated: Record<string, Record<string, GeneratedNpcPuzzle>>,
+): Record<string, Record<string, GeneratedNpcPuzzle>> {
+  const merged = { ...existing };
+  for (const [roomId, byNpc] of Object.entries(generated)) {
+    merged[roomId] = { ...(merged[roomId] ?? {}), ...byNpc };
+  }
+  return merged;
+}
+
+async function generatePuzzlesForRooms(
+  gameId: string,
+  rooms: Map<string, RoomDocument>,
+): Promise<Record<string, Record<string, GeneratedNpcPuzzle>>> {
+  const seeds = puzzlesFromRooms(rooms, gameId);
+  if (seeds.length === 0) return {};
+  return generateNpcPuzzles(seeds);
+}
+
+export async function ensureRoomNpcPuzzles(
+  uid: string,
+  gameId: string,
+  roomId: string,
+  room: RoomDocument,
+): Promise<GameSaveDocument | null> {
+  const game = await getGame(uid, gameId);
+  if (!game) return null;
+
+  const missing = room.npcs.filter(
+    (npc) => !game.npcPuzzles[roomId]?.[npc.id],
+  );
+  if (missing.length === 0) return game;
+
+  const roomMap = new Map([[roomId, room]]);
+  const generated = await generatePuzzlesForRooms(gameId, roomMap);
+  const npcPuzzles = mergeNpcPuzzles(game.npcPuzzles, generated);
+
+  await gameRef(uid, gameId).set(
+    { npcPuzzles, updatedAt: FieldValue.serverTimestamp() },
+    { merge: true },
+  );
+
+  return getGame(uid, gameId);
+}
+
 export async function createGame(
   uid: string,
   startRoomId: string,
+  spawnOverride?: { x: number; z: number },
 ): Promise<GameSaveDocument> {
   const existing = await listGames(uid);
   if (existing.length >= MAX_SAVED_GAMES) {
@@ -67,11 +120,19 @@ export async function createGame(
   const room = roomSnap.exists
     ? normalizeRoom(roomSnap.data() as Parameters<typeof normalizeRoom>[0])
     : null;
-  const spawn = resolvePlayerSpawn(room);
+  const spawn = spawnOverride
+    ? resolvePlayerSpawn({
+        playerSpawnX: spawnOverride.x,
+        playerSpawnZ: spawnOverride.z,
+      })
+    : resolvePlayerSpawn(room);
 
   const gameId = `game_${Date.now()}`;
   const label = defaultGameLabel(existing.length);
   const now = FieldValue.serverTimestamp();
+
+  const rooms = await discoverGameRooms(startRoomId);
+  const npcPuzzles = await generatePuzzlesForRooms(gameId, rooms);
 
   const payload = {
     label,
@@ -80,6 +141,7 @@ export async function createGame(
     playerZ: spawn.z,
     startRoomId,
     unlockedPortals: {},
+    npcPuzzles,
     createdAt: now,
     updatedAt: now,
   };
@@ -94,6 +156,7 @@ export async function createGame(
     playerZ: spawn.z,
     startRoomId,
     unlockedPortals: {},
+    npcPuzzles,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -127,6 +190,16 @@ export async function updateGame(
   const updated = await ref.get();
   const game = normalizeGameSave(updated.id, updated.data());
   if (!game) throw new Error("Could not read saved game.");
+
+  try {
+    const { syncLeaderboardForGame } = await import("@/lib/server/leagues");
+    await syncLeaderboardForGame(uid, game);
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[game-saves] Leaderboard sync failed:", error);
+    }
+  }
+
   return game;
 }
 

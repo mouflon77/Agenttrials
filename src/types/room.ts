@@ -55,6 +55,33 @@ export const DEFAULT_GATEKEEPER_STATS: GatekeeperStats = {
   thatsRightThreshold: 25,
 };
 
+export const DEFAULT_GATEKEEPER_ROLE =
+  "A weary portal guard who has heard every excuse and shortcut.";
+
+export const DEFAULT_GATEKEEPER_STYLE =
+  "Blunt but fair, dry humor, conversational. Not corporate or robotic.";
+
+export const DEFAULT_GATEKEEPER_QUIRKS =
+  "Yeah, Got it, Look, Alright. Use natural openers like these instead of filler like \"I'd be happy to help\" or \"Certainly!\"";
+
+export const DEFAULT_PASS_KEYWORDS = "respect, patience";
+
+export const DEFAULT_PASS_HINT =
+  "Work the ideas of respect and patience into what you say. Tell me you respect my time and you are not rushing me. Mean it in your own words.";
+
+/** Parse comma-separated pass keywords from editor or Firestore. */
+export function parsePassKeywords(raw?: string | null): string[] {
+  if (!raw?.trim()) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/[,;]+/)
+        .map((part) => part.trim().toLowerCase())
+        .filter((part) => part.length > 0),
+    ),
+  ];
+}
+
 export const GATEKEEPER_STAT_META: Array<{
   key: keyof GatekeeperStats;
   label: string;
@@ -135,6 +162,28 @@ export interface NpcItem {
   /** Negotiation stats that shape how hard this gatekeeper is to pass. */
   stats: GatekeeperStats;
   /**
+   * Who they are — role and perspective for the AI voice.
+   * e.g. "A snarky, tech-savvy startup co-founder guarding the floor."
+   */
+  role?: string;
+  /** How they talk: casual, blunt, warm, direct, etc. */
+  conversationalStyle?: string;
+  /**
+   * Signature phrases and verbal tics to use instead of robotic filler.
+   * e.g. "Yeah, Got it, Look — avoid corporate jargon."
+   */
+  signatureQuirks?: string;
+  /**
+   * Comma-separated words/phrases. If the player's message contains any of
+   * these (case-insensitive), the portal opens immediately.
+   */
+  passKeywords?: string;
+  /**
+   * Shown when the player asks for a hint. Should point toward passKeywords
+   * without necessarily quoting them verbatim.
+   */
+  passHint?: string;
+  /**
    * Agent wallet public key (from AgentWallets `npm run setup`).
    * Receives bribes during negotiation.
    */
@@ -175,6 +224,8 @@ export interface RoomDocument {
 export interface RoomListItem {
   id: string;
   title?: string;
+  playerSpawnX?: number;
+  playerSpawnZ?: number;
 }
 
 export function formatRoomLabel(room: RoomListItem): string {
@@ -205,7 +256,10 @@ export function suggestNextRoomId(existingIds: string[]): string {
 export interface TilesetDocument {
   name: string;
   textureUrl: string;
-  /** Grid footprint (furniture) */
+  /**
+   * Grid footprint: floor tiles for furniture; for doors/windows on walls,
+   * `width` = tiles along the wall, `depth` = tiles tall on the wall.
+   */
   width: number;
   depth: number;
   /** Display size for texture scaling (max 256; 64 = 1 tile unit) */
@@ -236,6 +290,157 @@ export function formatWallKeyLabel(key: string): string {
   const [side, along, height] = key.split("_");
   if (!side || along === undefined || height === undefined) return key;
   return `${side} · ${along}, h${height}`;
+}
+
+export function parseWallKey(
+  key: string,
+): { side: WallSide; along: number; height: number } | null {
+  const [sideRaw, alongRaw, heightRaw] = key.split("_");
+  if (!sideRaw || alongRaw === undefined || heightRaw === undefined) return null;
+  if (!WALL_SIDES.includes(sideRaw as WallSide)) return null;
+  const along = Number(alongRaw);
+  const height = Number(heightRaw);
+  if (!Number.isFinite(along) || !Number.isFinite(height)) return null;
+  return { side: sideRaw as WallSide, along, height };
+}
+
+/** Wall overlay span from tileset width/depth (along-wall × vertical). */
+export function getOverlayFootprint(
+  tile: Pick<TilesetDocument, "width" | "depth"> | null | undefined,
+): { along: number; height: number } {
+  return {
+    along: Math.max(1, Math.round(tile?.width ?? 1)),
+    height: Math.max(1, Math.round(tile?.depth ?? 1)),
+  };
+}
+
+export function formatOverlayFootprint(
+  tile: Pick<TilesetDocument, "width" | "depth"> | null | undefined,
+): string {
+  const { along, height } = getOverlayFootprint(tile);
+  return `${along}×${height}`;
+}
+
+export interface WallOverlayPlacement {
+  key: string;
+  tileId: string;
+  side: WallSide;
+  along: number;
+  height: number;
+  alongSpan: number;
+  heightSpan: number;
+}
+
+export function isCellInOverlayFootprint(
+  along: number,
+  height: number,
+  originAlong: number,
+  originHeight: number,
+  alongSpan: number,
+  heightSpan: number,
+): boolean {
+  return (
+    along >= originAlong &&
+    along < originAlong + alongSpan &&
+    height >= originHeight &&
+    height < originHeight + heightSpan
+  );
+}
+
+export function findWallOverlayAtCell(
+  grid: Record<string, string>,
+  getFootprint: (tileId: string) => { along: number; height: number },
+  side: WallSide,
+  along: number,
+  height: number,
+): WallOverlayPlacement | null {
+  let best: WallOverlayPlacement | null = null;
+
+  for (const [key, tileId] of Object.entries(grid)) {
+    if (!isActiveOverlay(tileId)) continue;
+    const parsed = parseWallKey(key);
+    if (!parsed || parsed.side !== side) continue;
+
+    const span = getFootprint(tileId);
+    if (
+      !isCellInOverlayFootprint(
+        along,
+        height,
+        parsed.along,
+        parsed.height,
+        span.along,
+        span.height,
+      )
+    ) {
+      continue;
+    }
+
+    const candidate: WallOverlayPlacement = {
+      key,
+      tileId,
+      side: parsed.side,
+      along: parsed.along,
+      height: parsed.height,
+      alongSpan: span.along,
+      heightSpan: span.height,
+    };
+
+    if (
+      !best ||
+      parsed.along < best.along ||
+      (parsed.along === best.along && parsed.height < best.height)
+    ) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+export function listWallOverlayPlacements(
+  grid: Record<string, string>,
+  getFootprint: (tileId: string) => { along: number; height: number },
+): WallOverlayPlacement[] {
+  const placements: WallOverlayPlacement[] = [];
+  const seen = new Set<string>();
+
+  for (const [key, tileId] of Object.entries(grid)) {
+    if (!isActiveOverlay(tileId)) continue;
+    const parsed = parseWallKey(key);
+    if (!parsed) continue;
+
+    const placement = findWallOverlayAtCell(
+      grid,
+      getFootprint,
+      parsed.side,
+      parsed.along,
+      parsed.height,
+    );
+    if (!placement || placement.key !== key || seen.has(key)) continue;
+    seen.add(key);
+    placements.push(placement);
+  }
+
+  return placements.sort((a, b) => {
+    if (a.side !== b.side) return a.side.localeCompare(b.side);
+    if (a.along !== b.along) return a.along - b.along;
+    return a.height - b.height;
+  });
+}
+
+export function canPlaceWallOverlay(
+  side: WallSide,
+  along: number,
+  height: number,
+  alongSpan: number,
+  heightSpan: number,
+): boolean {
+  return (
+    along >= 0 &&
+    height >= 0 &&
+    along + alongSpan <= GRID_SIZE &&
+    height + heightSpan <= WALL_HEIGHT
+  );
 }
 
 export function listActiveOverlayEntries(
@@ -286,6 +491,22 @@ export function getWallTransform(
         rotation: [0, -Math.PI / 2, 0],
       };
   }
+}
+
+/** Centered transform for a multi-tile door/window anchored at bottom-left wall cell. */
+export function getWallOverlayTransform(
+  side: WallSide,
+  originAlong: number,
+  originHeight: number,
+  alongSpan: number,
+  heightSpan: number,
+): {
+  position: [number, number, number];
+  rotation: [number, number, number];
+} {
+  const centerAlong = originAlong + alongSpan / 2;
+  const centerHeight = originHeight + heightSpan / 2;
+  return getWallTransform(side, centerAlong - 0.5, centerHeight - 0.5);
 }
 
 export function createDefaultFloorGrid(
@@ -365,6 +586,29 @@ export function normalizeNpcs(items: NpcItem[]): NpcItem[] {
         : null;
     if (bribeAmountSol != null) {
       normalized.bribeAmountSol = bribeAmountSol;
+    }
+
+    const role = item.role?.trim();
+    if (role) normalized.role = role.slice(0, 500);
+
+    const conversationalStyle = item.conversationalStyle?.trim();
+    if (conversationalStyle) {
+      normalized.conversationalStyle = conversationalStyle.slice(0, 300);
+    }
+
+    const signatureQuirks = item.signatureQuirks?.trim();
+    if (signatureQuirks) {
+      normalized.signatureQuirks = signatureQuirks.slice(0, 500);
+    }
+
+    const passKeywords = item.passKeywords?.trim();
+    if (passKeywords) {
+      normalized.passKeywords = passKeywords.slice(0, 300);
+    }
+
+    const passHint = item.passHint?.trim();
+    if (passHint) {
+      normalized.passHint = passHint.slice(0, 500);
     }
 
     return normalized;
@@ -451,6 +695,50 @@ export function resolvePlayerSpawn(
     x: clampSpawnCoord(room?.playerSpawnX, DEFAULT_PLAYER_SPAWN.x),
     z: clampSpawnCoord(room?.playerSpawnZ, DEFAULT_PLAYER_SPAWN.z),
   };
+}
+
+/** True when a saved (0,0) is almost certainly an uninitialized spawn. */
+export function isUnsetSavedSpawn(
+  saved: { x: number; z: number },
+  roomSpawn: { x: number; z: number },
+): boolean {
+  return (
+    saved.x === 0 &&
+    saved.z === 0 &&
+    (roomSpawn.x !== 0 || roomSpawn.z !== 0)
+  );
+}
+
+/** Pick spawn for play mode: URL > saved game > room editor spawn. */
+export function resolvePlaySpawn(
+  room: Pick<RoomDocument, "playerSpawnX" | "playerSpawnZ"> | null | undefined,
+  game:
+    | {
+        roomId: string;
+        startRoomId: string;
+        playerX: number;
+        playerZ: number;
+      }
+    | null
+    | undefined,
+  roomId: string,
+  urlSpawn?: { x: number; z: number } | null,
+): { x: number; z: number } {
+  if (urlSpawn) return urlSpawn;
+
+  const roomSpawn = resolvePlayerSpawn(room, null);
+
+  if (!game || game.roomId !== roomId) {
+    return roomSpawn;
+  }
+
+  const saved = { x: game.playerX, z: game.playerZ };
+
+  if (isUnsetSavedSpawn(saved, roomSpawn)) {
+    return roomSpawn;
+  }
+
+  return saved;
 }
 
 export function normalizeRoom(data: Partial<RoomDocument>): RoomDocument {
