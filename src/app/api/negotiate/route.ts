@@ -3,18 +3,22 @@ import type { GatekeeperStats } from "@/types/room";
 import { AdminAuthError, requireUserRequest } from "@/lib/server/admin-auth";
 import { ensureRoomNpcPuzzles, getGame } from "@/lib/server/game-saves";
 import { getFirebaseAdminDb } from "@/lib/server/firebase-admin";
+import { buildKeywordProgress, type KeywordProgress } from "@/lib/gatekeeper-keywords";
+import { parseRoomFloor } from "@/types/game";
 import { normalizeRoom, parsePassKeywords } from "@/types/room";
 import {
   buildFallbackDenialReply,
   buildGatekeeperSystemPrompt,
   buildHintReply,
   buildKeywordPassReply,
+  buildPartialKeywordReply,
   countUserTurns,
+  evaluatePassKeywordsAcrossChat,
   finalizeNpcReply,
-  messagePassesKeywords,
   polishGatekeeperReply,
   recentNpcRepliesFromHistory,
   resolveGatekeeperPassed,
+  resolvePassKeywordsForNpc,
   userRequestsHint,
 } from "@/lib/server/gatekeeper-judge";
 import {
@@ -34,7 +38,6 @@ export interface NegotiateRequest {
   npcConversationalStyle?: string;
   npcSignatureQuirks?: string;
   passKeywords?: string;
-  passHint?: string;
   npcStats?: Partial<GatekeeperStats>;
   message: string;
   history?: Array<{ role: "user" | "npc"; text: string }>;
@@ -49,6 +52,7 @@ export interface NegotiateResponse {
   reply: string;
   bribeVerified?: boolean;
   bribeAmountSol?: number;
+  keywordProgress?: KeywordProgress;
 }
 
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
@@ -56,7 +60,6 @@ const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 interface ResolvedNegotiationNpc {
   npcPrompt: string;
   passKeywords: string[];
-  passHint?: string;
   npcStats?: Partial<GatekeeperStats>;
 }
 
@@ -80,10 +83,15 @@ async function resolveNegotiationNpc(
   }
 
   const puzzle = game?.npcPuzzles?.[body.roomId]?.[body.npcId];
+  const roomNpc = room?.npcs.find((npc) => npc.id === body.npcId);
+  const passKeywords = resolvePassKeywordsForNpc({
+    roomKeywords: parsePassKeywords(roomNpc?.passKeywords),
+    puzzleKeywords: parsePassKeywords(puzzle?.passKeywords),
+    bodyKeywords: parsePassKeywords(body.passKeywords),
+  });
   return {
     npcPrompt: puzzle?.prompt ?? body.npcPrompt ?? "",
-    passKeywords: parsePassKeywords(puzzle?.passKeywords ?? body.passKeywords),
-    passHint: puzzle?.passHint ?? body.passHint,
+    passKeywords,
     npcStats: puzzle?.stats ?? body.npcStats,
   };
 }
@@ -161,11 +169,12 @@ function buildGeminiContents(
     npcConversationalStyle: body.npcConversationalStyle,
     npcSignatureQuirks: body.npcSignatureQuirks,
     passKeywords: resolved.passKeywords,
-    passHint: resolved.passHint,
     npcStats: resolved.npcStats,
     userTurnCount: countUserTurns(storedHistory) + 1,
     paymentVerified,
     recentNpcReplies: recentNpcRepliesFromHistory(storedHistory),
+    chatHistory: storedHistory,
+    userMessage: body.message.trim(),
     bribeBlock,
     memoryBlock,
   });
@@ -390,14 +399,27 @@ export async function POST(request: Request) {
     npcConversationalStyle: body.npcConversationalStyle,
     npcSignatureQuirks: body.npcSignatureQuirks,
     passKeywords,
-    passHint: resolved.passHint,
     npcStats: resolved.npcStats,
     userTurnCount,
     paymentVerified,
     recentNpcReplies,
+    chatHistory: storedHistory,
+    userMessage,
   };
 
   const saveAndRespond = async (result: NegotiateResponse) => {
+    const keywordProgress = buildKeywordProgress({
+      keywords: passKeywords,
+      floor: parseRoomFloor(body.roomId),
+      history: [
+        ...storedHistory,
+        { role: "user" as const, text: userMessage },
+      ],
+    });
+    const payload: NegotiateResponse = {
+      ...result,
+      keywordProgress,
+    };
     try {
       await saveNegotiationTurn(uid, gameId, {
         roomId: body.roomId,
@@ -407,12 +429,14 @@ export async function POST(request: Request) {
         npcReply: result.reply,
         passed: result.passed,
       });
+      const { syncNegotiationScoreForGame } = await import("@/lib/server/leagues");
+      await syncNegotiationScoreForGame(uid, gameId);
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.warn("[negotiate] Failed to save chat memory:", error);
       }
     }
-    return NextResponse.json(result satisfies NegotiateResponse);
+    return NextResponse.json(payload satisfies NegotiateResponse);
   };
 
   if (paymentVerified) {
@@ -426,13 +450,31 @@ export async function POST(request: Request) {
     });
   }
 
-  if (
-    passKeywords.length > 0 &&
-    messagePassesKeywords(userMessage, passKeywords)
-  ) {
+  const keywordEval = evaluatePassKeywordsAcrossChat(
+    storedHistory,
+    userMessage,
+    passKeywords,
+  );
+
+  if (passKeywords.length > 0 && keywordEval.passes) {
     return saveAndRespond({
       passed: true,
       reply: buildKeywordPassReply(judgeCtx),
+    });
+  }
+
+  if (
+    passKeywords.length > 0 &&
+    keywordEval.matched.length > 0 &&
+    keywordEval.missing.length > 0
+  ) {
+    return saveAndRespond({
+      passed: false,
+      reply: buildPartialKeywordReply(
+        judgeCtx,
+        keywordEval.matched,
+        keywordEval.missing.length,
+      ),
     });
   }
 
@@ -462,16 +504,24 @@ export async function POST(request: Request) {
         },
         judgeCtx,
       )
-    : {
-        passed: paymentVerified,
-        reply: paymentVerified
-          ? polishGatekeeperReply(
-              "Payment received. The portal is unlocked. You may pass.",
-            )
-          : finalizeNpcReply(buildFallbackDenialReply(judgeCtx), passKeywords),
-        bribeVerified: paymentVerified || undefined,
-        bribeAmountSol: paymentVerified ? verifiedAmountSol : undefined,
-      };
+    : (() => {
+        if (passKeywords.length > 0 && keywordEval.passes) {
+          return {
+            passed: true,
+            reply: buildKeywordPassReply(judgeCtx),
+          };
+        }
+        return {
+          passed: paymentVerified,
+          reply: paymentVerified
+            ? polishGatekeeperReply(
+                "Payment received. The portal is unlocked. You may pass.",
+              )
+            : finalizeNpcReply(buildFallbackDenialReply(judgeCtx), passKeywords),
+          bribeVerified: paymentVerified || undefined,
+          bribeAmountSol: paymentVerified ? verifiedAmountSol : undefined,
+        };
+      })();
 
   return saveAndRespond(result);
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { LeagueShareButtons } from "@/components/admin/LeagueShareButtons";
 import { TerminalShell } from "@/components/terminal/TerminalShell";
 import { useAuth } from "@/contexts/AuthContext";
 import type { LeagueDocument } from "@/types/league";
@@ -185,6 +186,12 @@ export default function AdminLeaguesPage() {
               <p className="mt-1 font-mono text-sm text-term-yellow">
                 CODE: <span className="tracking-[0.3em]">{lastCreated.code}</span>
               </p>
+              <div className="mt-4">
+                <LeagueShareButtons
+                  leagueName={lastCreated.name}
+                  code={lastCreated.code}
+                />
+              </div>
             </div>
           )}
         </section>
@@ -225,21 +232,28 @@ export default function AdminLeaguesPage() {
                       {league.active ? "STATUS: OPEN" : "STATUS: CLOSED"}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <Link
-                      href={`/leaderboard/${encodeURIComponent(league.id)}`}
-                      className="chunky-btn rounded px-4 py-2 text-[10px] text-white"
-                    >
-                      View Board
-                    </Link>
-                    <button
-                      type="button"
-                      disabled={deletingId === league.id}
-                      onClick={() => void deleteLeague(league.id)}
-                      className="chunky-btn btn-recessed-red rounded px-4 py-2 text-[10px] font-black"
-                    >
-                      {deletingId === league.id ? "..." : "DEL"}
-                    </button>
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Link
+                        href={`/leaderboard/${encodeURIComponent(league.id)}`}
+                        className="chunky-btn rounded px-4 py-2 text-[10px] text-white"
+                      >
+                        View Board
+                      </Link>
+                      <button
+                        type="button"
+                        disabled={deletingId === league.id}
+                        onClick={() => void deleteLeague(league.id)}
+                        className="chunky-btn btn-recessed-red rounded px-4 py-2 text-[10px] font-black"
+                      >
+                        {deletingId === league.id ? "..." : "DEL"}
+                      </button>
+                    </div>
+                    <LeagueShareButtons
+                      leagueName={league.name}
+                      code={league.code}
+                      compact
+                    />
                   </div>
                 </div>
               ))

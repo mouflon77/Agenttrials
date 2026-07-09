@@ -7,6 +7,14 @@
         { "fieldPath": "score", "order": "DESCENDING" },
         { "fieldPath": "updatedAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "negotiatorRankings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "negotiationScore", "order": "DESCENDING" },
+        { "fieldPath": "floor", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

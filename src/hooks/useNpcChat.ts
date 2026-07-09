@@ -3,8 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { subscribeToNegotiationChat } from "@/lib/firestore/negotiation-chat";
+import {
+  buildKeywordProgress,
+  type KeywordProgress,
+} from "@/lib/gatekeeper-keywords";
+import { parseRoomFloor } from "@/types/game";
 import type { NpcItem } from "@/types/room";
-import { npcAcceptsBribes } from "@/types/room";
+import { npcAcceptsBribes, parsePassKeywords } from "@/types/room";
 
 export interface ChatLine {
   role: "user" | "npc";
@@ -16,12 +21,9 @@ function greetingFor(npc: NpcItem): ChatLine {
   const bribeHint = npcAcceptsBribes(npc)
     ? ` I accept ${npc.bribeAmountSol} SOL, or talk it through.`
     : " Ask what it takes to open the portal.";
-  const hintHint = npc.passHint?.trim()
-    ? " Say \"hint\" if you want a clue."
-    : " Say \"hint\" if you get stuck.";
   return {
     role: "npc",
-    text: `I'm ${npc.name}.${bribeHint}${hintHint}`,
+    text: `I'm ${npc.name}.${bribeHint} Say "hint" if you get stuck.`,
   };
 }
 
@@ -33,6 +35,20 @@ function linesFromStored(
   return messages.map((m) => ({ role: m.role, text: m.text }));
 }
 
+function progressForNpc(
+  npc: NpcItem,
+  roomId: string,
+  messages: Array<{ role: "user" | "npc"; text: string }>,
+): KeywordProgress | null {
+  const keywords = parsePassKeywords(npc.passKeywords);
+  const progress = buildKeywordProgress({
+    keywords,
+    floor: parseRoomFloor(roomId),
+    history: messages,
+  });
+  return progress.total > 0 ? progress : null;
+}
+
 export function useNpcChat(
   gameId: string | null | undefined,
   roomId: string,
@@ -42,6 +58,9 @@ export function useNpcChat(
 ) {
   const [input, setInput] = useState("");
   const [lines, setLines] = useState<ChatLine[]>([]);
+  const [keywordProgress, setKeywordProgress] = useState<KeywordProgress | null>(
+    null,
+  );
   const [sending, setSending] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const bribeTxRef = useRef<{
@@ -60,6 +79,7 @@ export function useNpcChat(
       setInput("");
       setSending(false);
       setHistoryLoading(false);
+      setKeywordProgress(null);
       bribeTxRef.current = null;
       return;
     }
@@ -69,6 +89,7 @@ export function useNpcChat(
       setInput("");
       setSending(false);
       setHistoryLoading(false);
+      setKeywordProgress(progressForNpc(npc, roomId, []));
       bribeTxRef.current = null;
       return;
     }
@@ -81,7 +102,9 @@ export function useNpcChat(
     const unsub = subscribeToNegotiationChat(userId, gameId, roomId, npc.id, (chat) => {
       setHistoryLoading(false);
       if (sendingRef.current) return;
-      setLines(linesFromStored(chat?.messages ?? [], npc));
+      const messages = chat?.messages ?? [];
+      setLines(linesFromStored(messages, npc));
+      setKeywordProgress(progressForNpc(npc, roomId, messages));
       if (chat?.passed) onPassed(npc.id);
     });
 
@@ -136,7 +159,6 @@ export function useNpcChat(
           npcConversationalStyle: npc.conversationalStyle,
           npcSignatureQuirks: npc.signatureQuirks,
           passKeywords: npc.passKeywords,
-          passHint: npc.passHint,
           npcStats: npc.stats,
           npcWalletAddress: npc.walletAddress,
           bribeAmountSol: npc.bribeAmountSol,
@@ -156,6 +178,7 @@ export function useNpcChat(
         reply?: string;
         error?: string;
         bribeVerified?: boolean;
+        keywordProgress?: KeywordProgress;
       } = {};
       try {
         data = (await res.json()) as typeof data;
@@ -183,6 +206,20 @@ export function useNpcChat(
         return [...withoutPending, { role: "npc", text: reply }];
       });
 
+      if (data.keywordProgress) {
+        setKeywordProgress(data.keywordProgress);
+      } else {
+        setKeywordProgress(
+          progressForNpc(npc, roomId, [
+            ...historyForApi.map((line) => ({
+              role: line.role,
+              text: line.text,
+            })),
+            { role: "user", text: message },
+          ]),
+        );
+      }
+
       if (res.ok && data.passed) onPassed(npc.id);
     } catch {
       setLines((prev) => {
@@ -209,6 +246,7 @@ export function useNpcChat(
     lines,
     npcLines,
     userLines,
+    keywordProgress,
     sending: sending || historyLoading,
     send,
     registerBribePayment,

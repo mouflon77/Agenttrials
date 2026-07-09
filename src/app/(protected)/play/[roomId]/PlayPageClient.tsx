@@ -133,9 +133,9 @@ export default function PlayPageClient({
   return (
     <LandscapeGate>
       <div className="scanlines flex h-screen flex-col bg-term-bg">
-        <header className="terminal-bezel mx-2 mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 sm:mx-4 sm:mt-3 sm:px-4 sm:py-3">
+        <header className="terminal-bezel mx-1 mt-1 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 sm:mx-4 sm:mt-3 sm:px-4 sm:py-3">
           <div className="min-w-0">
-            <h1 className="truncate font-mono text-sm font-bold uppercase text-term-blue">
+            <h1 className="truncate font-mono text-xs font-bold uppercase text-term-blue sm:text-sm">
               {game?.label ?? `ROOM: ${roomId}`}
             </h1>
             <p className="hidden font-mono text-[10px] text-zinc-500 sm:block">
@@ -145,9 +145,9 @@ export default function PlayPageClient({
           <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/dashboard"
-              className="chunky-btn hidden rounded px-3 py-1.5 text-[10px] text-white sm:inline-block"
+              className="chunky-btn rounded px-2 py-1 text-[9px] text-white sm:px-3 sm:py-1.5 sm:text-[10px]"
             >
-              Dashboard
+              Exit
             </Link>
             {isAdmin && (
               <Link

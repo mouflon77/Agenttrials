@@ -1,84 +1,109 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { LeaguePlayerRow } from "@/components/league/LeaguePlayerRow";
 import { TerminalShell } from "@/components/terminal/TerminalShell";
 import { useAuth } from "@/contexts/AuthContext";
-import { useGames } from "@/hooks/useGames";
-import { formatGameLabel } from "@/types/game";
-import type { LeagueMembership } from "@/types/league";
+import { useLeagueMemberships } from "@/hooks/useLeagueMemberships";
+import { type GameSaveDocument } from "@/types/game";
+import type { LeaderboardEntry } from "@/types/league";
 
 export default function LeaderboardHubPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
-  const { games, loading: gamesLoading } = useGames(user?.uid);
-  const [memberships, setMemberships] = useState<LeagueMembership[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [joining, setJoining] = useState(false);
+  const { memberships, loading } = useLeagueMemberships();
+  const [topNegotiators, setTopNegotiators] = useState<LeaderboardEntry[]>([]);
+  const [negotiatorsLoading, setNegotiatorsLoading] = useState(true);
+  const [creatingRun, setCreatingRun] = useState(false);
   const [code, setCode] = useState("");
-  const [gameId, setGameId] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
+    const joinCode = searchParams.get("join")?.trim().toUpperCase();
+    if (joinCode) setCode(joinCode);
+  }, [searchParams]);
+
+  const loadNegotiators = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    setNegotiatorsLoading(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch("/api/leagues/mine", {
+      const res = await fetch("/api/leaderboard/negotiators", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = (await res.json()) as {
-        memberships?: LeagueMembership[];
+        entries?: LeaderboardEntry[];
         error?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? "Could not load leagues.");
-      setMemberships(data.memberships ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load leagues.");
+      if (!res.ok) throw new Error(data.error ?? "Could not load negotiators.");
+      setTopNegotiators(data.entries ?? []);
+    } catch {
+      setTopNegotiators([]);
     } finally {
-      setLoading(false);
+      setNegotiatorsLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void loadNegotiators();
+  }, [loadNegotiators]);
 
-  useEffect(() => {
-    if (!gameId && games.length > 0) {
-      setGameId(games[0]!.id);
-    }
-  }, [games, gameId]);
-
-  const joinLeague = async () => {
-    if (!user || !code.trim() || !gameId) return;
-    setJoining(true);
+  const startNewLeagueRun = async () => {
+    if (!user || !code.trim()) return;
+    setCreatingRun(true);
     setError(null);
-    setSuccess(null);
     try {
       const token = await user.getIdToken();
-      const res = await fetch("/api/leagues/join", {
+      const createRes = await fetch("/api/games", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ code: code.trim(), gameId }),
+        body: JSON.stringify({ startRoomId: "room_01" }),
       });
-      const data = (await res.json()) as {
-        membership?: LeagueMembership;
+      const createData = (await createRes.json()) as {
+        game?: GameSaveDocument;
         error?: string;
       };
-      if (!res.ok || !data.membership) {
-        throw new Error(data.error ?? "Could not join league.");
+      if (!createRes.ok || !createData.game) {
+        throw new Error(createData.error ?? "Could not start a new game.");
       }
-      setSuccess(`Joined ${data.membership.leagueName}.`);
-      setCode("");
-      await refresh();
+
+      const game = createData.game;
+      const joinRes = await fetch("/api/leagues/join", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code: code.trim(), gameId: game.id }),
+      });
+      const joinData = (await joinRes.json()) as {
+        membership?: { leagueId: string; leagueName: string };
+        error?: string;
+      };
+      if (!joinRes.ok || !joinData.membership) {
+        throw new Error(joinData.error ?? "Could not join league.");
+      }
+
+      const params = new URLSearchParams({
+        gameId: game.id,
+        spawnX: String(game.playerX),
+        spawnZ: String(game.playerZ),
+      });
+      router.push(
+        `/play/${encodeURIComponent(game.roomId)}?${params.toString()}`,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not join league.");
+      setError(
+        err instanceof Error ? err.message : "Could not start league run.",
+      );
     } finally {
-      setJoining(false);
+      setCreatingRun(false);
     }
   };
 
@@ -89,7 +114,7 @@ export default function LeaderboardHubPage() {
           <p className="font-mono text-sm text-zinc-400">
             &gt; LEADERBOARD_NET: <span className="text-white">ONLINE</span>
             <br />
-            &gt; ENTER_CODE // SELECT_SAVE // COMPETE
+            &gt; TOP_NEGOTIATORS // LEAGUES
           </p>
         </div>
         <Link
@@ -100,6 +125,37 @@ export default function LeaderboardHubPage() {
         </Link>
       </div>
 
+      <section className="terminal-bezel mb-8 overflow-hidden rounded-xl">
+        <div className="border-b border-zinc-800 bg-black/40 px-4 py-3">
+          <h2 className="font-mono text-xs font-black uppercase tracking-[0.2em] text-term-pink">
+            Top Negotiators // Global
+          </h2>
+          <p className="mt-1 font-mono text-[9px] text-zinc-600">
+            Best negotiation scores across all players. Ranked by neg. score,
+            then floor reached.
+          </p>
+        </div>
+        {negotiatorsLoading ? (
+          <p className="p-6 font-mono text-xs text-zinc-500">LOADING...</p>
+        ) : topNegotiators.length === 0 ? (
+          <p className="p-6 text-center font-mono text-xs text-zinc-600">
+            No rankings yet. Talk to gatekeepers in-game to appear here.
+          </p>
+        ) : (
+          <div className="divide-y divide-zinc-800">
+            {topNegotiators.map((entry, index) => (
+              <LeaguePlayerRow
+                key={entry.uid}
+                entry={entry}
+                rank={index + 1}
+                isYou={entry.uid === user?.uid}
+                emphasis="negotiation"
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       <div className="grid gap-8 lg:grid-cols-12">
         <section className="terminal-bezel rounded-xl p-6 lg:col-span-5">
           <h2 className="mb-4 text-sm font-black uppercase tracking-widest text-term-pink">
@@ -108,7 +164,7 @@ export default function LeaderboardHubPage() {
           <div className="space-y-4">
             <div>
               <label className="mb-1 block font-mono text-[10px] uppercase text-zinc-500">
-                League code
+                Invite code
               </label>
               <input
                 type="text"
@@ -117,44 +173,21 @@ export default function LeaderboardHubPage() {
                 placeholder="ABC123"
                 className="term-input w-full rounded px-3 py-2 font-mono text-lg uppercase tracking-[0.35em]"
               />
-            </div>
-            <div>
-              <label className="mb-1 block font-mono text-[10px] uppercase text-zinc-500">
-                Competing save
-              </label>
-              <select
-                value={gameId}
-                onChange={(e) => setGameId(e.target.value)}
-                disabled={gamesLoading || games.length === 0}
-                className="term-input w-full rounded px-3 py-2 font-mono text-sm"
-              >
-                {games.length === 0 ? (
-                  <option value="">No saved games</option>
-                ) : (
-                  games.map((game) => (
-                    <option key={game.id} value={game.id}>
-                      {formatGameLabel(game)}
-                    </option>
-                  ))
-                )}
-              </select>
               <p className="mt-1 font-mono text-[9px] text-zinc-600">
-                Progress on this save counts toward the league.
+                Enter the code shared with you. A new game save is created for
+                this league run.
               </p>
             </div>
             <button
               type="button"
-              disabled={joining || !code.trim() || !gameId}
-              onClick={() => void joinLeague()}
+              disabled={creatingRun || !code.trim()}
+              onClick={() => void startNewLeagueRun()}
               className="chunky-btn btn-glow-green w-full rounded py-3 text-xs font-black uppercase"
             >
-              {joining ? "JOINING..." : "Enter League"}
+              {creatingRun ? "STARTING..." : "Start new game for league"}
             </button>
             {error && (
               <p className="font-mono text-xs text-term-red">{error}</p>
-            )}
-            {success && (
-              <p className="font-mono text-xs text-term-green">{success}</p>
             )}
           </div>
         </section>
@@ -183,8 +216,8 @@ export default function LeaderboardHubPage() {
                     <p className="text-sm font-bold uppercase text-white">
                       {m.leagueName}
                     </p>
-                    <p className="mt-1 font-mono text-[10px] text-zinc-500">
-                      CODE: {m.leagueCode}
+                    <p className="mt-1 font-mono text-[9px] text-zinc-500">
+                      League run linked to your account
                     </p>
                   </div>
                   <span className="font-mono text-[10px] text-term-green">

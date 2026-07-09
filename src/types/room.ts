@@ -174,8 +174,8 @@ export interface NpcItem {
    */
   signatureQuirks?: string;
   /**
-   * Comma-separated words/phrases. If the player's message contains any of
-   * these (case-insensitive), the portal opens immediately.
+   * Comma-separated words. If the player's message contains every keyword
+   * (across the conversation on harder floors), the portal opens immediately.
    */
   passKeywords?: string;
   /**

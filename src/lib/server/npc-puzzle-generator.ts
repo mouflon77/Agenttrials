@@ -1,11 +1,13 @@
 import type { GeneratedNpcPuzzle } from "@/types/game";
 import { parseRoomFloor } from "@/types/game";
+import { keywordCountForFloor } from "@/lib/gatekeeper-keywords";
 import {
   DEFAULT_GATEKEEPER_QUIRKS,
   DEFAULT_GATEKEEPER_ROLE,
   DEFAULT_GATEKEEPER_STYLE,
   clampGatekeeperStat,
   normalizeGatekeeperStats,
+  parsePassKeywords,
   type GatekeeperStats,
   type NpcItem,
 } from "@/types/room";
@@ -50,9 +52,28 @@ export interface NpcPuzzleSeed {
   floor: number;
   npc: Pick<
     NpcItem,
-    "id" | "name" | "role" | "conversationalStyle" | "signatureQuirks"
+    | "id"
+    | "name"
+    | "role"
+    | "conversationalStyle"
+    | "signatureQuirks"
+    | "passKeywords"
+    | "passHint"
   >;
   gameSeed: string;
+}
+
+function roomConfiguredKeywords(seed: NpcPuzzleSeed): string[] {
+  return parsePassKeywords(seed.npc.passKeywords);
+}
+
+function keywordsForPuzzle(seed: NpcPuzzleSeed): string[] {
+  const fromRoom = roomConfiguredKeywords(seed);
+  if (fromRoom.length > 0) return fromRoom;
+  return uniqueKeywords(
+    `${seed.gameSeed}:${seed.roomId}:${seed.npc.id}`,
+    keywordCountForFloor(seed.floor),
+  );
 }
 
 function hashString(input: string): number {
@@ -69,10 +90,12 @@ function uniqueKeywords(seed: string, count: number): string[] {
     (a, b) =>
       hashString(`${seed}:kw:${a}`) - hashString(`${seed}:kw:${b}`),
   );
-  return shuffled.slice(0, Math.max(2, Math.min(4, count)));
+  return shuffled.slice(0, Math.max(1, Math.min(5, count)));
 }
 
-export function statRangeForFloor(floor: number): { min: number; max: number } {
+export { keywordCountForFloor };
+
+function statRangeForFloor(floor: number): { min: number; max: number } {
   const f = Math.max(1, floor);
   return {
     min: Math.min(80, 10 + (f - 1) * 6),
@@ -94,8 +117,13 @@ export function generateFallbackNpcPuzzle(
   const role = input.npc.role?.trim() || DEFAULT_GATEKEEPER_ROLE;
   const style =
     input.npc.conversationalStyle?.trim() || DEFAULT_GATEKEEPER_STYLE;
-  const keywords = uniqueKeywords(seed, 2 + (input.floor % 2));
-  const keywordPhrase = keywords.join(" and ");
+  const keywords = keywordsForPuzzle(input);
+  const keywordPhrase =
+    keywords.length === 1
+      ? keywords[0]!
+      : keywords.length === 2
+        ? `${keywords[0]} and ${keywords[1]}`
+        : `${keywords[0]}, ${keywords[1]}, and ${keywords[2]}`;
 
   const stats: GatekeeperStats = {
     egoArmor: randomStat(seed, "egoArmor", input.floor),
@@ -108,7 +136,7 @@ export function generateFallbackNpcPuzzle(
   return {
     prompt: `You guard this floor as ${role}. Your style is ${style}. Before opening the portal, the player must convince you they genuinely embody ${keywordPhrase} in how they approach you. You are not cruel, but floor ${input.floor} has made you harder to sway.`,
     passKeywords: keywords.join(", "),
-    passHint: `Talk to me in a way that shows real ${keywords[0]} and ${keywords[1] ?? "sincerity"}. Mean it in your own words. Do not flatter or rush me.`,
+    passHint: "",
     stats: normalizeGatekeeperStats(stats),
   };
 }
@@ -127,7 +155,7 @@ function normalizeGeminiPuzzleRow(
   input: NpcPuzzleSeed,
 ): GeneratedNpcPuzzle | null {
   const disposition = row.disposition?.trim();
-  const keywords = Array.isArray(row.passKeywords)
+  let keywords = Array.isArray(row.passKeywords)
     ? [
         ...new Set(
           row.passKeywords
@@ -136,8 +164,28 @@ function normalizeGeminiPuzzleRow(
         ),
       ].slice(0, 4)
     : [];
+  const roomKeywords = roomConfiguredKeywords(input);
+  if (roomKeywords.length > 0) {
+    keywords = roomKeywords;
+  }
   const passHint = row.passHint?.trim();
-  if (!disposition || keywords.length < 2 || !passHint) return null;
+  const requiredCount = keywordCountForFloor(input.floor);
+  if (!disposition || keywords.length < 1) return null;
+  if (roomKeywords.length === 0) {
+    if (keywords.length < requiredCount) {
+      const padded = uniqueKeywords(
+        `${input.gameSeed}:${input.roomId}:${input.npc.id}:pad`,
+        requiredCount,
+      );
+      for (const kw of padded) {
+        if (!keywords.includes(kw)) keywords.push(kw);
+        if (keywords.length >= requiredCount) break;
+      }
+    }
+    keywords.splice(requiredCount);
+  }
+
+  const resolvedHint = passHint?.trim() || "";
 
   const { min, max } = statRangeForFloor(input.floor);
   const stats = normalizeGatekeeperStats({
@@ -171,7 +219,7 @@ function normalizeGeminiPuzzleRow(
   return {
     prompt: disposition.slice(0, 1200),
     passKeywords: keywords.join(", "),
-    passHint: passHint.slice(0, 600),
+    passHint: resolvedHint.slice(0, 600),
     stats,
   };
 }
@@ -181,13 +229,20 @@ function buildBatchPrompt(entries: NpcPuzzleSeed[]): string {
     .map((entry) => {
       const npc = entry.npc;
       const { min, max } = statRangeForFloor(entry.floor);
+      const kwCount = keywordCountForFloor(entry.floor);
+      const roomKw = roomConfiguredKeywords(entry);
+      const kwLine =
+        roomKw.length > 0
+          ? `- passKeywords (FIXED — use exactly these words, no substitutes): ${roomKw.join(", ")}`
+          : `- passKeywords count: exactly ${kwCount} (player must use ALL of them across the chat to pass instantly)`;
       return `### ${entry.roomId} / ${npc.id}
 - Floor: ${entry.floor} (higher = harder negotiation)
 - Name: ${npc.name}
 - Role: ${npc.role?.trim() || DEFAULT_GATEKEEPER_ROLE}
 - Style: ${npc.conversationalStyle?.trim() || DEFAULT_GATEKEEPER_STYLE}
 - Quirks: ${npc.signatureQuirks?.trim() || DEFAULT_GATEKEEPER_QUIRKS}
-- Stat range for this floor: each stat ${min}-${max}`;
+- Stat range for this floor: each stat ${min}-${max}
+${kwLine}`;
     })
     .join("\n\n");
 
@@ -195,7 +250,7 @@ function buildBatchPrompt(entries: NpcPuzzleSeed[]): string {
 
 Rules:
 - disposition: 2-4 sentences. What emotional/logical conditions must the player satisfy? Must fit the NPC's role, style, and quirks.
-- passKeywords: exactly 2 or 3 lowercase single words (no phrases). Random and varied each run, but thematically tied to the character. Never generic filler like "please" or "help".
+- passKeywords: exactly N lowercase single words per NPC (see each block's count). Random and varied each run, but thematically tied to the character. Player must use ALL listed words (AND) to pass instantly. Never generic filler like "please" or "help".
 - passHint: 1-3 sentences telling the player what attitude/themes to show WITHOUT saying the passKeywords verbatim.
 - stats: integers; use the listed range for each NPC's floor. Higher floors = tougher.
 
@@ -351,10 +406,170 @@ export function puzzlesFromRooms(
           role: npc.role,
           conversationalStyle: npc.conversationalStyle,
           signatureQuirks: npc.signatureQuirks,
+          passKeywords: npc.passKeywords,
+          passHint: npc.passHint,
         },
         gameSeed,
       });
     }
   }
   return entries;
+}
+
+export interface AdminGatekeeperGenerateInput {
+  floor: number;
+  name: string;
+  role?: string;
+  conversationalStyle?: string;
+  signatureQuirks?: string;
+}
+
+export type AdminGatekeeperGenerateResult = {
+  prompt: string;
+  passKeywords: string;
+  source: "gemini" | "fallback";
+};
+
+function buildAdminGatekeeperFallback(
+  input: AdminGatekeeperGenerateInput,
+): AdminGatekeeperGenerateResult {
+  const role = input.role?.trim() || DEFAULT_GATEKEEPER_ROLE;
+  const style = input.conversationalStyle?.trim() || DEFAULT_GATEKEEPER_STYLE;
+  const quirks = input.signatureQuirks?.trim() || DEFAULT_GATEKEEPER_QUIRKS;
+  const fallback = generateFallbackNpcPuzzle({
+    roomId: `room_${String(input.floor).padStart(2, "0")}`,
+    floor: input.floor,
+    gameSeed: `admin:${input.name}:${input.floor}:${Date.now()}`,
+    npc: {
+      id: "gen",
+      name: input.name,
+      role,
+      conversationalStyle: style,
+      signatureQuirks: quirks,
+    },
+  });
+  return {
+    prompt: fallback.prompt,
+    passKeywords: fallback.passKeywords,
+    source: "fallback",
+  };
+}
+
+export async function generateGatekeeperFieldsForAdmin(
+  input: AdminGatekeeperGenerateInput,
+): Promise<AdminGatekeeperGenerateResult> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    return buildAdminGatekeeperFallback(input);
+  }
+
+  const kwCount = keywordCountForFloor(input.floor);
+  const role = input.role?.trim() || DEFAULT_GATEKEEPER_ROLE;
+  const style = input.conversationalStyle?.trim() || DEFAULT_GATEKEEPER_STYLE;
+  const quirks = input.signatureQuirks?.trim() || DEFAULT_GATEKEEPER_QUIRKS;
+  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
+
+  const prompt = `Design a portal-gate puzzle for this NPC.
+
+Name: ${input.name}
+Floor: ${input.floor} (needs exactly ${kwCount} pass keyword${kwCount === 1 ? "" : "s"})
+Role: ${role}
+Style: ${style}
+Quirks: ${quirks}
+
+Return JSON only:
+{
+  "disposition": "2-4 sentences: what emotional/logical conditions must the player satisfy?",
+  "passKeywords": ["word1"${kwCount > 1 ? ', "word2"' : ""}${kwCount > 2 ? ', "word3"' : ""}]
+}
+
+Rules:
+- passKeywords: exactly ${kwCount} lowercase single words, thematically tied to this character
+- Never use generic filler like "please" or "help"
+- disposition must fit the role, style, and quirks`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.85,
+            maxOutputTokens: 1024,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "object",
+              properties: {
+                disposition: { type: "string" },
+                passKeywords: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+              required: ["disposition", "passKeywords"],
+            },
+          },
+        }),
+      },
+    );
+
+    if (!res.ok) {
+      if (process.env.NODE_ENV === "development") {
+        const err = await res.text();
+        console.warn(
+          `[admin/gatekeeper/generate] Gemini ${model} failed (${res.status}):`,
+          err.slice(0, 400),
+        );
+      }
+      return buildAdminGatekeeperFallback(input);
+    }
+
+    const data = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!raw) return buildAdminGatekeeperFallback(input);
+
+    const parsed = JSON.parse(raw) as {
+      disposition?: string;
+      passKeywords?: string[];
+    };
+    const disposition = parsed.disposition?.trim();
+    const keywords = Array.isArray(parsed.passKeywords)
+      ? [
+          ...new Set(
+            parsed.passKeywords
+              .map((k) => String(k).trim().toLowerCase())
+              .filter((k) => k.length >= 3 && k.length <= 24),
+          ),
+        ].slice(0, kwCount)
+      : [];
+
+    if (!disposition || keywords.length < 1) {
+      return buildAdminGatekeeperFallback(input);
+    }
+
+    while (keywords.length < kwCount) {
+      const pad = uniqueKeywords(`admin:pad:${Date.now()}`, kwCount);
+      for (const kw of pad) {
+        if (!keywords.includes(kw)) keywords.push(kw);
+        if (keywords.length >= kwCount) break;
+      }
+      break;
+    }
+
+    return {
+      prompt: disposition.slice(0, 1200),
+      passKeywords: keywords.slice(0, kwCount).join(", "),
+      source: "gemini",
+    };
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[admin/gatekeeper/generate] Gemini request error:", error);
+    }
+    return buildAdminGatekeeperFallback(input);
+  }
 }

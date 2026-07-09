@@ -2,20 +2,13 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
+import { LeaguePlayerRow } from "@/components/league/LeaguePlayerRow";
 import { TerminalShell } from "@/components/terminal/TerminalShell";
 import { useAuth } from "@/contexts/AuthContext";
-import { formatLevelReached } from "@/types/game";
 import {
-  formatLeaderboardRank,
   type LeaderboardEntry,
   type LeagueDocument,
 } from "@/types/league";
-
-const RANK_COLORS = [
-  "text-term-yellow",
-  "text-zinc-300",
-  "text-amber-600",
-] as const;
 
 export default function LeagueLeaderboardPage({
   params,
@@ -69,15 +62,6 @@ export default function LeagueLeaderboardPage({
             <span className="font-bold text-white">
               {league?.name ?? "LOADING..."}
             </span>
-            {league && (
-              <>
-                <br />
-                &gt; CODE:{" "}
-                <span className="tracking-[0.25em] text-term-yellow">
-                  {league.code}
-                </span>
-              </>
-            )}
           </p>
         </div>
         <Link
@@ -91,8 +75,12 @@ export default function LeagueLeaderboardPage({
       <section className="terminal-bezel overflow-hidden rounded-xl">
         <div className="border-b border-zinc-800 bg-black/40 px-4 py-3">
           <h2 className="font-mono text-xs font-black uppercase tracking-[0.2em] text-term-green">
-            Standings // Sorted by floor reached
+            Standings // Floor progress + negotiation score
           </h2>
+          <p className="mt-1 font-mono text-[9px] text-zinc-600">
+            Neg. score starts at 100 and drops with extra turns, hints, and weak
+            replies. Per-level medians are averaged for the final grade.
+          </p>
         </div>
 
         {error && (
@@ -109,50 +97,14 @@ export default function LeagueLeaderboardPage({
           </p>
         ) : (
           <div className="divide-y divide-zinc-800">
-            {entries.map((entry, index) => {
-              const rank = index + 1;
-              const isYou = entry.uid === user?.uid;
-              const rankColor =
-                RANK_COLORS[index] ?? "text-zinc-400";
-              const label =
-                entry.twitterHandle?.replace(/^@/, "") || entry.displayName;
-
-              return (
-                <div
-                  key={entry.uid}
-                  className={`flex flex-wrap items-center gap-4 px-4 py-3 ${
-                    isYou ? "bg-term-green/5" : "bg-black/20"
-                  }`}
-                >
-                  <span
-                    className={`w-10 font-mono text-lg font-black ${rankColor}`}
-                  >
-                    {formatLeaderboardRank(rank)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold uppercase text-white">
-                      {label}
-                      {isYou && (
-                        <span className="ml-2 font-mono text-[9px] text-term-green">
-                          YOU
-                        </span>
-                      )}
-                    </p>
-                    <p className="font-mono text-[10px] text-zinc-500">
-                      LVL: {formatLevelReached(entry.roomId)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-mono text-sm font-bold text-term-yellow">
-                      FLOOR {entry.floor}
-                    </p>
-                    <p className="font-mono text-[9px] text-zinc-600">
-                      SCORE {entry.score}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+            {entries.map((entry, index) => (
+              <LeaguePlayerRow
+                key={entry.uid}
+                entry={entry}
+                rank={index + 1}
+                isYou={entry.uid === user?.uid}
+              />
+            ))}
           </div>
         )}
       </section>

@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { keywordCountForFloor } from "@/lib/gatekeeper-keywords";
+import { parseRoomFloor } from "@/types/game";
 import type {
   GatekeeperStats,
   NpcItem,
@@ -21,10 +23,11 @@ interface NpcPortalSidebarProps {
   npcConversationalStyle: string;
   npcSignatureQuirks: string;
   npcPassKeywords: string;
-  npcPassHint: string;
   npcStats: GatekeeperStats;
   npcWalletAddress: string;
   npcBribeAmountSol: string;
+  npcGenerating?: boolean;
+  npcGenerateError?: string | null;
   portalTarget: string;
   portalSpawnX: number;
   portalSpawnZ: number;
@@ -44,7 +47,7 @@ interface NpcPortalSidebarProps {
   onNpcConversationalStyleChange: (value: string) => void;
   onNpcSignatureQuirksChange: (value: string) => void;
   onNpcPassKeywordsChange: (value: string) => void;
-  onNpcPassHintChange: (value: string) => void;
+  onGenerateNpcPuzzle: () => void;
   onNpcStatChange: (key: keyof GatekeeperStats, value: number) => void;
   onNpcBribeAmountSolChange: (value: string) => void;
   onSelectAgentWallet: (walletId: string) => void;
@@ -57,10 +60,8 @@ interface NpcPortalSidebarProps {
   onRemovePortal: (id: string) => void;
   onSaveNpcFields: () => void;
   onSavePortalFields: () => void;
-  /** True when form differs from last saved gatekeeper snapshot. */
   npcDirty?: boolean;
   npcSaveSuccess?: string | null;
-  /** Existing floors for portal target picker. */
   roomList?: RoomListItem[];
   currentRoomId?: string;
 }
@@ -74,10 +75,11 @@ export function NpcPortalSidebar({
   npcConversationalStyle,
   npcSignatureQuirks,
   npcPassKeywords,
-  npcPassHint,
   npcStats,
   npcWalletAddress,
   npcBribeAmountSol,
+  npcGenerating = false,
+  npcGenerateError = null,
   portalTarget,
   portalSpawnX,
   portalSpawnZ,
@@ -97,7 +99,7 @@ export function NpcPortalSidebar({
   onNpcConversationalStyleChange,
   onNpcSignatureQuirksChange,
   onNpcPassKeywordsChange,
-  onNpcPassHintChange,
+  onGenerateNpcPuzzle,
   onNpcStatChange,
   onNpcBribeAmountSolChange,
   onSelectAgentWallet,
@@ -118,13 +120,16 @@ export function NpcPortalSidebar({
   const selectedNpc = selectedNpcId
     ? npcs.find((npc) => npc.id === selectedNpcId)
     : undefined;
+  const floor = parseRoomFloor(currentRoomId ?? "room_01");
+  const keywordSlots = keywordCountForFloor(floor);
 
   if (mode === "npc") {
     return (
       <div className="mb-4 space-y-3">
         <p className="text-[10px] text-zinc-500">
-          Set name, voice, disposition, and stats, then click the floor to place
-          a new gatekeeper — or select one below / in the room to edit and save.
+          Set name, voice, disposition, and keywords, then click the floor to
+          place a new gatekeeper — or select one below / in the room to edit and
+          save.
         </p>
         <label className="text-xs text-zinc-400">Standee sprite</label>
         <div className="grid max-h-32 grid-cols-3 gap-1 overflow-y-auto">
@@ -206,10 +211,25 @@ export function NpcPortalSidebar({
           className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
           placeholder="Yeah, Got it, Look — natural openers instead of robotic filler."
         />
+
+        <button
+          type="button"
+          disabled={painting || npcGenerating}
+          onClick={onGenerateNpcPuzzle}
+          className="w-full rounded-lg border border-violet-500/50 bg-violet-950/40 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-900/50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {npcGenerating
+            ? "Generating disposition & keywords…"
+            : `Generate disposition & keywords (floor ${floor} → ${keywordSlots} word${keywordSlots === 1 ? "" : "s"})`}
+        </button>
+        {npcGenerateError ? (
+          <p className="text-[10px] text-red-400">{npcGenerateError}</p>
+        ) : null}
+
         <label className="text-xs text-zinc-400">Disposition / conditions</label>
         <p className="text-[9px] leading-relaxed text-zinc-600">
-          Generated fresh for each new game from the personality fields above.
-          Optional fallback template if AI generation is unavailable.
+          What the player must satisfy through conversation. Generate from
+          personality fields above, or write your own.
         </p>
         <textarea
           value={npcPrompt}
@@ -220,11 +240,13 @@ export function NpcPortalSidebar({
         />
         <div className="space-y-2 rounded-lg border border-amber-900/40 bg-amber-950/20 p-2">
           <p className="text-[10px] font-medium uppercase tracking-wide text-amber-400/90">
-            Portal pass puzzle
+            Portal pass keywords
           </p>
           <p className="text-[9px] leading-relaxed text-amber-200/70">
-            Keywords, hint, and stats are randomized per new game from the NPC
-            personality. Templates below are fallbacks only.
+            Floor {floor} needs {keywordSlots} keyword
+            {keywordSlots === 1 ? "" : "s"} (all required). Players see progress
+            lights — green found, amber warming up, red still to find. In-game
+            hints are generated live and never repeat.
           </p>
           <label className="text-xs text-zinc-400">
             Pass keywords (comma-separated)
@@ -234,24 +256,8 @@ export function NpcPortalSidebar({
             value={npcPassKeywords}
             onChange={(e) => onNpcPassKeywordsChange(e.target.value)}
             className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
-            placeholder="respect, patience, understand"
+            placeholder="respect, patience"
           />
-          <p className="text-[9px] text-zinc-600">
-            If the player&apos;s message contains any keyword, the portal opens
-            immediately (case-insensitive).
-          </p>
-          <label className="text-xs text-zinc-400">Hint (shown when they ask)</label>
-          <textarea
-            value={npcPassHint}
-            onChange={(e) => onNpcPassHintChange(e.target.value)}
-            rows={3}
-            className="w-full rounded bg-zinc-800 px-2 py-1.5 text-xs"
-            placeholder="Tell me you respect my time and you're willing to be patient..."
-          />
-          <p className="text-[9px] text-zinc-600">
-            Used when the player says &quot;hint&quot;, &quot;clue&quot;, etc.
-            Give a real answer, not a dodge.
-          </p>
         </div>
         <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
           <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">

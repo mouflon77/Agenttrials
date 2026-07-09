@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { UserProfileBar } from "@/components/UserProfileBar";
 import { FirestoreAdminBanner } from "@/components/FirestoreAdminBanner";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRoom } from "@/hooks/useRoom";
@@ -60,7 +61,6 @@ import {
   DEFAULT_GATEKEEPER_ROLE,
   DEFAULT_GATEKEEPER_STATS,
   DEFAULT_GATEKEEPER_STYLE,
-  DEFAULT_PASS_HINT,
   DEFAULT_PASS_KEYWORDS,
   GRID_SIZE,
   MAX_TEXTURE_PX,
@@ -110,7 +110,6 @@ function npcFormSnapshot(input: {
   conversationalStyle: string;
   signatureQuirks: string;
   passKeywords: string;
-  passHint: string;
   stats: GatekeeperStats;
   standeeType: string;
   walletAddress: string;
@@ -123,7 +122,6 @@ function npcFormSnapshot(input: {
     conversationalStyle: input.conversationalStyle.trim(),
     signatureQuirks: input.signatureQuirks.trim(),
     passKeywords: input.passKeywords.trim(),
-    passHint: input.passHint.trim(),
     stats: normalizeGatekeeperStats(input.stats),
     standeeType: input.standeeType,
     walletAddress: input.walletAddress.trim(),
@@ -194,7 +192,8 @@ export default function AdminEditorClient() {
     DEFAULT_GATEKEEPER_QUIRKS,
   );
   const [npcPassKeywords, setNpcPassKeywords] = useState(DEFAULT_PASS_KEYWORDS);
-  const [npcPassHint, setNpcPassHint] = useState(DEFAULT_PASS_HINT);
+  const [npcGenerating, setNpcGenerating] = useState(false);
+  const [npcGenerateError, setNpcGenerateError] = useState<string | null>(null);
   const [npcStats, setNpcStats] = useState<GatekeeperStats>(
     DEFAULT_GATEKEEPER_STATS,
   );
@@ -399,7 +398,6 @@ export default function AdminEditorClient() {
       conversationalStyle: npcConversationalStyle,
       signatureQuirks: npcSignatureQuirks,
       passKeywords: npcPassKeywords,
-      passHint: npcPassHint,
       stats: npcStats,
       standeeType: selectedTileId,
       walletAddress: npcWalletAddress,
@@ -414,7 +412,6 @@ export default function AdminEditorClient() {
     npcConversationalStyle,
     npcSignatureQuirks,
     npcPassKeywords,
-    npcPassHint,
     npcStats,
     selectedTileId,
     npcWalletAddress,
@@ -611,7 +608,6 @@ export default function AdminEditorClient() {
         conversationalStyle: npcConversationalStyle,
         signatureQuirks: npcSignatureQuirks,
         passKeywords: npcPassKeywords,
-        passHint: npcPassHint,
         stats: npcStats,
         standeeType: selectedTileId,
         walletAddress: npcWalletAddress,
@@ -629,7 +625,6 @@ export default function AdminEditorClient() {
           conversationalStyle: npcConversationalStyle.trim() || undefined,
           signatureQuirks: npcSignatureQuirks.trim() || undefined,
           passKeywords: npcPassKeywords.trim() || undefined,
-          passHint: npcPassHint.trim() || undefined,
           stats: normalizeGatekeeperStats(npcStats),
           ...(npcWalletAddress.trim()
             ? { walletAddress: npcWalletAddress.trim() }
@@ -758,7 +753,6 @@ export default function AdminEditorClient() {
     conversationalStyle?: string;
     signatureQuirks?: string;
     passKeywords?: string;
-    passHint?: string;
     stats?: GatekeeperStats;
     walletAddress?: string;
     bribeAmountSol?: number;
@@ -774,7 +768,6 @@ export default function AdminEditorClient() {
       npc.signatureQuirks?.trim() || DEFAULT_GATEKEEPER_QUIRKS,
     );
     setNpcPassKeywords(npc.passKeywords?.trim() || DEFAULT_PASS_KEYWORDS);
-    setNpcPassHint(npc.passHint?.trim() || DEFAULT_PASS_HINT);
     setNpcStats(normalizeGatekeeperStats(npc.stats));
     setNpcWalletAddress(npc.walletAddress ?? "");
     setNpcBribeAmountSol(
@@ -795,7 +788,6 @@ export default function AdminEditorClient() {
         signatureQuirks:
           npc.signatureQuirks?.trim() || DEFAULT_GATEKEEPER_QUIRKS,
         passKeywords: npc.passKeywords?.trim() || DEFAULT_PASS_KEYWORDS,
-        passHint: npc.passHint?.trim() || DEFAULT_PASS_HINT,
         stats: normalizeGatekeeperStats(npc.stats),
         standeeType: npc.standeeType,
         walletAddress: npc.walletAddress ?? "",
@@ -819,6 +811,56 @@ export default function AdminEditorClient() {
       ...prev,
       [key]: clampGatekeeperStat(value, prev[key]),
     }));
+  };
+
+  const handleGenerateNpcPuzzle = async () => {
+    setNpcGenerating(true);
+    setNpcGenerateError(null);
+    setNpcSaveSuccess(null);
+    try {
+      const user = getFirebaseAuth().currentUser;
+      if (!user) {
+        setNpcGenerateError("Sign in to generate puzzle fields.");
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch("/api/admin/gatekeeper/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          roomId,
+          name: npcName.trim() || "Gatekeeper",
+          role: npcRole,
+          conversationalStyle: npcConversationalStyle,
+          signatureQuirks: npcSignatureQuirks,
+        }),
+      });
+      const data = (await res.json()) as {
+        prompt?: string;
+        passKeywords?: string;
+        source?: "gemini" | "fallback";
+        error?: string;
+      };
+      if (!res.ok || !data.prompt || !data.passKeywords) {
+        throw new Error(data.error ?? "Generation failed.");
+      }
+      setNpcPrompt(data.prompt);
+      setNpcPassKeywords(data.passKeywords);
+      setNpcSaveSuccess(
+        data.source === "fallback"
+          ? "Generated from local template (Gemini not configured on server). Save to keep."
+          : "Disposition and keywords generated. Save to keep them.",
+      );
+    } catch (error) {
+      setNpcGenerateError(
+        error instanceof Error ? error.message : "Generation failed.",
+      );
+    } finally {
+      setNpcGenerating(false);
+    }
   };
 
   const handlePortalSelect = (id: string) => {
@@ -849,7 +891,6 @@ export default function AdminEditorClient() {
       conversationalStyle: npcConversationalStyle,
       signatureQuirks: npcSignatureQuirks,
       passKeywords: npcPassKeywords,
-      passHint: npcPassHint,
       stats: npcStats,
       standeeType: selectedTileId,
       walletAddress: npcWalletAddress,
@@ -864,7 +905,6 @@ export default function AdminEditorClient() {
         conversationalStyle: npcConversationalStyle.trim() || undefined,
         signatureQuirks: npcSignatureQuirks.trim() || undefined,
         passKeywords: npcPassKeywords.trim() || undefined,
-        passHint: npcPassHint.trim() || undefined,
         stats: normalizeGatekeeperStats(npcStats),
         standeeType: selectedTileId,
         ...(wallet ? { walletAddress: wallet } : {}),
@@ -1236,8 +1276,10 @@ export default function AdminEditorClient() {
             npcConversationalStyle={npcConversationalStyle}
             npcSignatureQuirks={npcSignatureQuirks}
             npcPassKeywords={npcPassKeywords}
-            npcPassHint={npcPassHint}
             npcStats={npcStats}
+            npcGenerating={npcGenerating}
+            npcGenerateError={npcGenerateError}
+            onGenerateNpcPuzzle={() => void handleGenerateNpcPuzzle()}
             npcWalletAddress={npcWalletAddress}
             npcBribeAmountSol={npcBribeAmountSol}
             portalTarget={portalTarget}
@@ -1276,10 +1318,6 @@ export default function AdminEditorClient() {
             onNpcPassKeywordsChange={(value) => {
               setNpcSaveSuccess(null);
               setNpcPassKeywords(value);
-            }}
-            onNpcPassHintChange={(value) => {
-              setNpcSaveSuccess(null);
-              setNpcPassHint(value);
             }}
             onNpcStatChange={handleNpcStatChange}
             onNpcBribeAmountSolChange={(value) => {

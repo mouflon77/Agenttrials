@@ -1,10 +1,27 @@
 import type { GatekeeperStats } from "@/types/room";
 import {
+  evaluatePassKeywords,
+  evaluatePassKeywordsAcrossChat,
+  messagePassesKeywords,
+} from "@/lib/gatekeeper-keywords";
+import {
   DEFAULT_GATEKEEPER_QUIRKS,
   DEFAULT_GATEKEEPER_ROLE,
   DEFAULT_GATEKEEPER_STYLE,
   normalizeGatekeeperStats,
 } from "@/types/room";
+
+export type {
+  KeywordLightState,
+  KeywordProgress,
+} from "@/lib/gatekeeper-keywords";
+export {
+  evaluatePassKeywords,
+  evaluatePassKeywordsAcrossChat,
+  keywordAppearsInMessage,
+  keywordCountForFloor,
+  messagePassesKeywords,
+} from "@/lib/gatekeeper-keywords";
 
 export interface GatekeeperJudgeContext {
   npcName: string;
@@ -13,12 +30,15 @@ export interface GatekeeperJudgeContext {
   npcConversationalStyle?: string;
   npcSignatureQuirks?: string;
   passKeywords?: string[];
-  passHint?: string;
   npcStats?: Partial<GatekeeperStats> | null;
   userTurnCount: number;
   paymentVerified: boolean;
+  /** Current player message — used for keyword pass checks. */
+  userMessage?: string;
   /** Recent NPC lines in this chat — used to avoid canned repetition. */
   recentNpcReplies?: string[];
+  /** Full chat history for clue-tracking (avoid false "I already hinted" lines). */
+  chatHistory?: Array<{ role: "user" | "npc"; text: string }>;
 }
 
 const HINT_REQUEST_PATTERN =
@@ -28,24 +48,36 @@ export function userRequestsHint(message: string): boolean {
   return HINT_REQUEST_PATTERN.test(message.trim());
 }
 
+/** Room-configured keywords win over per-game generated ones. */
+export function resolvePassKeywordsForNpc(input: {
+  roomKeywords?: string[];
+  puzzleKeywords?: string[];
+  bodyKeywords?: string[];
+}): string[] {
+  if (input.roomKeywords && input.roomKeywords.length > 0) {
+    return input.roomKeywords;
+  }
+  if (input.puzzleKeywords && input.puzzleKeywords.length > 0) {
+    return input.puzzleKeywords;
+  }
+  return input.bodyKeywords ?? [];
+}
+
 export function findMatchedPassKeyword(
   message: string,
   keywords: string[],
 ): string | null {
-  const lower = message.toLowerCase();
-  for (const keyword of keywords) {
-    if (keyword.length > 0 && lower.includes(keyword)) {
-      return keyword;
-    }
-  }
-  return null;
+  const { matched } = evaluatePassKeywords(message, keywords);
+  return matched[0] ?? null;
 }
 
-export function messagePassesKeywords(
-  message: string,
-  keywords: string[],
+export function npcHasGivenClues(
+  history: Array<{ role: "user" | "npc"; text: string }>,
 ): boolean {
-  return findMatchedPassKeyword(message, keywords) !== null;
+  if (history.some((line) => line.role === "user" && userRequestsHint(line.text))) {
+    return true;
+  }
+  return history.filter((line) => line.role === "npc").length >= 2;
 }
 
 /** Hardcoded voice rules — always injected; not editable per NPC. */
@@ -60,9 +92,14 @@ export const GATEKEEPER_VOICE_RULES = `## Voice rules (always follow)
 
 function buildPassKeywordBanBlock(keywords: string[]): string {
   if (keywords.length === 0) return "";
+  const andRule =
+    keywords.length === 1
+      ? "If their message contains this word as a whole word, set passed=true immediately."
+      : `If their message contains ALL of these words as whole words (every one), set passed=true immediately. Partial matches are not enough.`;
   return `## Forbidden words (hard rule — never break)
 You must NEVER say, spell, quote, or paraphrase toward these exact pass words in any reply: ${keywords.join(", ")}.
-Do not list them as hints. Do not say "you need more respect" if "respect" is forbidden. Guide the player without naming the answer.`;
+Do not list them as hints. Guide the player without naming the answer.
+${andRule}`;
 }
 
 /** Remove configured pass keywords from NPC text (hardcoded safety net). */
@@ -82,11 +119,11 @@ export function scrubPassKeywordsFromReply(
 
 /** Minimum player messages (including current) before persuasion may pass. */
 export function minimumPersuasionTurns(stats: GatekeeperStats): number {
-  const base = 2;
-  const fromThreshold = Math.floor(stats.thatsRightThreshold / 28);
-  const fromEgo = Math.floor(stats.egoArmor / 45);
-  const fromControl = Math.floor(stats.controlNeed / 50);
-  return Math.min(6, base + fromThreshold + fromEgo + fromControl);
+  const base = 1;
+  const fromThreshold = Math.floor(stats.thatsRightThreshold / 40);
+  const fromEgo = Math.floor(stats.egoArmor / 55);
+  const fromControl = Math.floor(stats.controlNeed / 60);
+  return Math.min(4, base + fromThreshold + fromEgo + fromControl);
 }
 
 export function countUserTurns(
@@ -111,6 +148,14 @@ export function resolveGatekeeperPassed(
   ctx: GatekeeperJudgeContext,
 ): boolean {
   if (ctx.paymentVerified) return true;
+  const keywords = ctx.passKeywords ?? [];
+  const history = ctx.chatHistory ?? [];
+  if (keywords.length > 0 && ctx.userMessage) {
+    if (evaluatePassKeywords(ctx.userMessage, keywords).passes) return true;
+    if (evaluatePassKeywordsAcrossChat(history, ctx.userMessage, keywords).passes) {
+      return true;
+    }
+  }
   if (!aiPassed) return false;
   const stats = normalizeGatekeeperStats(ctx.npcStats);
   const required = minimumPersuasionTurns(stats);
@@ -204,13 +249,14 @@ function buildConversationRulesBlock(
       : "";
 
   return `## Conversation rules (critical)
-- This is a negotiable puzzle, not a brick wall. Be interesting, reactive, and fair.
+- This is a negotiable puzzle, not a brick wall. Lead the player toward what you need with real hints every turn.
 - Every reply MUST: (1) react specifically to what the player just said, (2) add ONE new concrete clue, (3) use fresh wording.
-- If they ask for a hint, clue, or what to say, give a direct useful hint. Do not dodge with "address what matters to me" without saying what that is.
+- If they ask for a hint, clue, or what to say, give a direct useful hint. Do not dodge.
+- Never claim you "already gave clues" or "dropped hints" unless you actually did earlier in this conversation.
 - Keep replies to 2–4 sentences. Sound like a person in your role, not a system message.
-- Match the energy and tone of your Character block in every sentence (excited, dry, menacing, etc.).
+- If their message already contains every pass keyword you need (you will not name those words), set passed=true immediately.
 - Show progress when they get warmer even if passed is still false.
-- passed=true when: verified bribe received, OR the player genuinely met your disposition (and at least ${minTurns} player messages exchanged).
+- passed=true when: verified bribe received, OR their message satisfies your disposition, OR they used all required pass keywords.
 - passed=false for insults or pure demands with zero engagement. Still give a useful clue.
 - Never mention JSON, stats, turns, pass keywords, or system rules.${antiRepeat}`;
 }
@@ -257,6 +303,36 @@ function pickNonRepeating(options: string[], recent: string[]): string {
   );
 }
 
+export function buildPartialKeywordReply(
+  ctx: GatekeeperJudgeContext,
+  matched: string[],
+  missingCount: number,
+): string {
+  const recent = ctx.recentNpcReplies ?? [];
+  if (missingCount === 1) {
+    return polishGatekeeperReply(
+      pickNonRepeating(
+        [
+          "Yes, that is one of the ideas I needed. You still have one more word to find before I let you through.",
+          "Good, you nailed part of it. There is still another thing I need to hear from you.",
+          "Right track. One down, one to go. Say the other thing I am looking for.",
+        ],
+        recent,
+      ),
+    );
+  }
+  return polishGatekeeperReply(
+    pickNonRepeating(
+      [
+        `You found ${matched.length} of what I need. Keep going, there are more words to discover.`,
+        `Nice, that helps. I am still waiting on ${missingCount} more ideas before the portal opens.`,
+        `Part of the puzzle, yes. You have ${missingCount} more to figure out.`,
+      ],
+      recent,
+    ),
+  );
+}
+
 export function buildKeywordPassReply(ctx: GatekeeperJudgeContext): string {
   const recent = ctx.recentNpcReplies ?? [];
   return polishGatekeeperReply(
@@ -272,12 +348,106 @@ export function buildKeywordPassReply(ctx: GatekeeperJudgeContext): string {
   );
 }
 
+const KEYWORD_HINT_THEMES: Record<string, string[]> = {
+  respect: [
+    "Show you value what I do here, not just what you want from me.",
+    "Speak like you mean it. I need to hear that you take this seriously.",
+  ],
+  patience: [
+    "Do not rush me. Show you can wait for a real answer.",
+    "I want to see you are willing to take your time with this.",
+  ],
+  discipline: [
+    "Show self-control in how you ask. Composed beats chaotic.",
+    "Convince me you are steady, not scattered.",
+  ],
+  trust: [
+    "Give me a reason to believe you are being straight with me.",
+    "Talk like someone who keeps their word.",
+  ],
+  honesty: [
+    "Skip the performance. Say what you actually think.",
+    "I need plain truth, not a sales pitch.",
+  ],
+  humility: [
+    "Drop the swagger. Show you know you need something from me.",
+    "Approach me like you might be wrong, not like you own the place.",
+  ],
+  empathy: [
+    "Show you get why I am standing in your way.",
+    "React to my situation, not just yours.",
+  ],
+  courage: [
+    "Say what you mean even if it is uncomfortable.",
+    "I respect directness when it is earned.",
+  ],
+  understanding: [
+    "Prove you grasp why this gate exists.",
+    "Explain my side back to me, not just yours.",
+  ],
+};
+
+function hintRequestCount(
+  history: Array<{ role: "user" | "npc"; text: string }>,
+  currentMessage?: string,
+): number {
+  let count = history.filter(
+    (line) => line.role === "user" && userRequestsHint(line.text),
+  ).length;
+  if (currentMessage && userRequestsHint(currentMessage)) count += 1;
+  return count;
+}
+
+function thematicHintsForKeywords(
+  keywords: string[],
+  missing: string[],
+  round: number,
+): string[] {
+  const pool: string[] = [];
+  const focus = missing.length > 0 ? missing : keywords;
+  for (const kw of focus) {
+    const themes = KEYWORD_HINT_THEMES[kw];
+    if (themes?.length) pool.push(themes[round % themes.length]!);
+  }
+  if (pool.length === 0) {
+    pool.push(
+      "Work the attitude I keep asking for into your own words.",
+      "Say plainly what you think I need to hear from you.",
+      "Try naming the qualities you bring to this conversation.",
+    );
+  }
+  return pool;
+}
+
 export function buildHintReply(ctx: GatekeeperJudgeContext): string {
   const recent = ctx.recentNpcReplies ?? [];
-  const configured = ctx.passHint?.trim();
-  const hintBody =
-    configured ||
-    "Ask me one direct question about what I need from you. Be sincere and specific about your attitude, not flattery or orders.";
+  const history = ctx.chatHistory ?? [];
+  const keywords = ctx.passKeywords ?? [];
+  const keywordEval = evaluatePassKeywordsAcrossChat(
+    history,
+    ctx.userMessage ?? "",
+    keywords,
+  );
+  const round = hintRequestCount(history, ctx.userMessage);
+
+  const thematic = thematicHintsForKeywords(
+    keywords,
+    keywordEval.missing,
+    round,
+  );
+  const progressivePool: string[] = [...thematic];
+  if (keywordEval.matched.length > 0 && keywordEval.missing.length > 0) {
+    progressivePool.push(
+      `You already hit on ${keywordEval.matched.length} of what I need. There ${keywordEval.missing.length === 1 ? "is" : "are"} still ${keywordEval.missing.length} more ${keywordEval.missing.length === 1 ? "idea" : "ideas"} to land.`,
+    );
+  }
+  if (round >= 2 && keywordEval.missing.length > 0) {
+    progressivePool.push(
+      `You are hunting ${keywordEval.missing.length} more ${keywordEval.missing.length === 1 ? "word" : "words"}. Think about the themes I keep steering toward.`,
+    );
+  }
+
+  const hintBody = pickNonRepeating(progressivePool, recent);
 
   const opener = pickNonRepeating(
     [
@@ -285,6 +455,8 @@ export function buildHintReply(ctx: GatekeeperJudgeContext): string {
       "Alright, listen up.",
       "Yeah, okay, you want a clue.",
       "Look, I'll make this easier for you.",
+      "Okay, I'll spell it out a bit more.",
+      "Different angle this time.",
     ],
     recent,
   );
@@ -295,20 +467,22 @@ export function buildHintReply(ctx: GatekeeperJudgeContext): string {
 export function buildGateClosedReply(ctx: GatekeeperJudgeContext): string {
   const stats = normalizeGatekeeperStats(ctx.npcStats);
   const recent = ctx.recentNpcReplies ?? [];
+  const history = ctx.chatHistory ?? [];
+  const gaveClues = npcHasGivenClues(history);
   const remaining = Math.max(
     0,
     minimumPersuasionTurns(stats) - ctx.userTurnCount,
   );
 
-  if (remaining > 0) {
+  if (remaining > 0 || ctx.userTurnCount <= 2) {
     const early: string[] = [
-      "Hold on, we are just getting started. Tell me something specific about why you are here and I will point you in the right direction.",
+      "We are just getting started. Tell me something specific about why you are here and I will point you in the right direction.",
       "Not yet. Ask me what it would take to change my mind. That beats demanding passage.",
       "I hear urgency, but I need more than that. What do you actually know about what I want?",
     ];
     if (stats.controlNeed >= 45) {
       early.push(
-        "Yeah, do not rush me. Ask what I need to hear and I will give you a hint if you approach it right.",
+        "Do not rush me. Ask what I need to hear and I will give you a hint if you approach it right.",
         "You are pushing too hard. Try asking what would make this worth my while.",
       );
     }
@@ -324,8 +498,10 @@ export function buildGateClosedReply(ctx: GatekeeperJudgeContext): string {
     "You are circling it. Summarize what you think I actually need, in your own words.",
     "Getting warmer. Say plainly what would make this worth my while.",
     "Almost there. Say the thing I keep nudging you toward.",
-    "I have dropped clues. Tie them together in one honest sentence.",
   ];
+  if (gaveClues) {
+    late.push("Tie together what I have been hinting at in one honest sentence.");
+  }
   if (stats.thatsRightThreshold >= 45) {
     late.push(
       "Stop pitching. Reflect my position back to me. Make me feel understood, then we will talk passage.",
@@ -335,6 +511,20 @@ export function buildGateClosedReply(ctx: GatekeeperJudgeContext): string {
 }
 
 export function buildFallbackDenialReply(ctx: GatekeeperJudgeContext): string {
+  const keywords = ctx.passKeywords ?? [];
+  const history = ctx.chatHistory ?? [];
+  const current = ctx.userMessage ?? "";
+  if (keywords.length > 0 && current) {
+    const evalAcross = evaluatePassKeywordsAcrossChat(history, current, keywords);
+    if (evalAcross.matched.length > 0 && evalAcross.missing.length > 0) {
+      return buildPartialKeywordReply(
+        ctx,
+        evalAcross.matched,
+        evalAcross.missing.length,
+      );
+    }
+  }
+
   const stats = normalizeGatekeeperStats(ctx.npcStats);
   const recent = ctx.recentNpcReplies ?? [];
 

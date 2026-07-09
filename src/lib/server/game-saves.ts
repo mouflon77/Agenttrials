@@ -192,8 +192,10 @@ export async function updateGame(
   if (!game) throw new Error("Could not read saved game.");
 
   try {
-    const { syncLeaderboardForGame } = await import("@/lib/server/leagues");
+    const { syncLeaderboardForGame, syncGlobalNegotiatorRanking } =
+      await import("@/lib/server/leagues");
     await syncLeaderboardForGame(uid, game);
+    await syncGlobalNegotiatorRanking(uid, game);
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[game-saves] Leaderboard sync failed:", error);

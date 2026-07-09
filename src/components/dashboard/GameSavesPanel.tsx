@@ -7,6 +7,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { getFirebaseDb } from "@/lib/firebase";
 import { MAX_SAVED_GAMES, formatGameLabel, formatLevelReached, type GameSaveDocument } from "@/types/game";
+import type { LeagueMembership } from "@/types/league";
 import { normalizeRoom, resolvePlaySpawn, resolvePlayerSpawn } from "@/types/room";
 
 interface GameSavesPanelProps {
@@ -14,6 +15,7 @@ interface GameSavesPanelProps {
   loading: boolean;
   roomsById: Map<string, { title?: string; playerSpawnX?: number; playerSpawnZ?: number }>;
   defaultStartRoomId: string;
+  leagueByGameId?: Map<string, LeagueMembership>;
 }
 
 const SLOT_COLORS = ["cartridge-red", "cartridge-blue", "cartridge-purple"];
@@ -49,6 +51,7 @@ export function GameSavesPanel({
   loading,
   roomsById,
   defaultStartRoomId,
+  leagueByGameId,
 }: GameSavesPanelProps) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
@@ -187,6 +190,7 @@ export function GameSavesPanel({
             const colorClass =
               SLOT_COLORS[index % SLOT_COLORS.length] ?? "cartridge-red";
             const continueHref = buildContinueHref(game, roomMeta ?? null);
+            const league = leagueByGameId?.get(game.id);
 
             return (
               <div
@@ -211,6 +215,16 @@ export function GameSavesPanel({
                     <div className="mt-1 font-mono text-[11px] font-bold uppercase text-black/60">
                       LVL: {levelLabel} // TS: {updated}
                     </div>
+                    {league && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/leaderboard/${encodeURIComponent(league.leagueId)}`}
+                          className="rounded border border-term-blue/40 bg-black/30 px-2 py-0.5 font-mono text-[9px] uppercase text-term-blue hover:bg-term-blue/10"
+                        >
+                          LEAGUE: {league.leagueName}
+                        </Link>
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-3">
                     <Link

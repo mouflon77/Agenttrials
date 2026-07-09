@@ -1,8 +1,11 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 import { getFirebaseAdminDb } from "@/lib/server/firebase-admin";
+import { computeGameNegotiationScore } from "@/lib/server/negotiation-score";
 import type { GameSaveDocument } from "@/types/game";
+import { normalizeAvatarConfig } from "@/types/avatar";
 import {
+  clampNegotiationScore,
   computeLeaderboardScore,
   normalizeLeagueCode,
   type LeaderboardEntry,
@@ -34,6 +37,10 @@ function membershipRef(uid: string, leagueId: string) {
 
 function entryRef(leagueId: string, uid: string) {
   return leagueRef(leagueId).collection("entries").doc(uid);
+}
+
+function negotiatorRankingRef(uid: string) {
+  return getFirebaseAdminDb().collection("negotiatorRankings").doc(uid);
 }
 
 function toIso(value: unknown): string {
@@ -87,22 +94,36 @@ function normalizeLeague(
   };
 }
 
-async function getUserLeaderboardLabel(uid: string): Promise<{
+async function getUserLeaderboardProfile(uid: string): Promise<{
   displayName: string;
   twitterHandle?: string;
+  photoURL?: string;
+  avatarConfig?: ReturnType<typeof normalizeAvatarConfig>;
 }> {
   const snap = await getFirebaseAdminDb().collection("users").doc(uid).get();
   const data = snap.data() as
-    | { displayName?: string; twitterHandle?: string }
+    | {
+        displayName?: string;
+        twitterHandle?: string;
+        photoURL?: string;
+        avatarConfig?: unknown;
+      }
     | undefined;
   const twitterHandle = data?.twitterHandle?.trim();
   const displayName =
     twitterHandle?.replace(/^@/, "") ||
     data?.displayName?.trim() ||
     `Player ${uid.slice(0, 6)}`;
+  const photoURL = data?.photoURL?.trim() || undefined;
+  const avatarConfig = data?.avatarConfig
+    ? normalizeAvatarConfig(data.avatarConfig as Parameters<typeof normalizeAvatarConfig>[0])
+    : undefined;
+
   return {
     displayName: displayName.slice(0, 64),
     ...(twitterHandle ? { twitterHandle: twitterHandle.slice(0, 16) } : {}),
+    ...(photoURL ? { photoURL: photoURL.slice(0, 512) } : {}),
+    ...(avatarConfig ? { avatarConfig } : {}),
   };
 }
 
@@ -262,21 +283,135 @@ export async function syncLeaderboardEntry(
   const membership = membershipSnap.data();
   if (String(membership?.gameId ?? "") !== game.id) return;
 
-  const { displayName, twitterHandle } = await getUserLeaderboardLabel(uid);
+  const profile = await getUserLeaderboardProfile(uid);
   const { floor, score, roomId } = computeLeaderboardScore(game);
+  const negotiationScore = await computeGameNegotiationScore(uid, game);
 
   const payload: Record<string, unknown> = {
     uid,
-    displayName,
+    displayName: profile.displayName,
     gameId: game.id,
     roomId,
     floor,
     score,
     updatedAt: FieldValue.serverTimestamp(),
   };
-  if (twitterHandle) payload.twitterHandle = twitterHandle;
+  if (negotiationScore != null) {
+    payload.negotiationScore = negotiationScore;
+  } else {
+    payload.negotiationScore = FieldValue.delete();
+  }
+  if (profile.twitterHandle) payload.twitterHandle = profile.twitterHandle;
+  if (profile.photoURL) payload.photoURL = profile.photoURL;
+  if (profile.avatarConfig) payload.avatarConfig = profile.avatarConfig;
 
   await entryRef(leagueId, uid).set(payload, { merge: true });
+  await syncGlobalNegotiatorRanking(uid, game, negotiationScore, profile, {
+    floor,
+    roomId,
+    score,
+  });
+}
+
+function mapRankingDoc(
+  id: string,
+  data: Record<string, unknown> | undefined,
+): LeaderboardEntry {
+  const avatarConfig = data?.avatarConfig
+    ? normalizeAvatarConfig(
+        data.avatarConfig as Parameters<typeof normalizeAvatarConfig>[0],
+      )
+    : undefined;
+  return {
+    uid: id,
+    displayName: String(data?.displayName ?? "Player"),
+    twitterHandle: data?.twitterHandle ? String(data.twitterHandle) : undefined,
+    photoURL: data?.photoURL ? String(data.photoURL) : undefined,
+    ...(avatarConfig ? { avatarConfig } : {}),
+    gameId: String(data?.gameId ?? ""),
+    roomId: String(data?.roomId ?? ""),
+    floor: Number(data?.floor) || 0,
+    score: Number(data?.score) || 0,
+    ...(Number.isFinite(Number(data?.negotiationScore))
+      ? {
+          negotiationScore: clampNegotiationScore(
+            Number(data?.negotiationScore),
+          ),
+        }
+      : {}),
+    updatedAt: toIso(data?.updatedAt),
+  };
+}
+
+export async function syncGlobalNegotiatorRanking(
+  uid: string,
+  game: GameSaveDocument,
+  negotiationScore?: number | null,
+  profile?: Awaited<ReturnType<typeof getUserLeaderboardProfile>>,
+  progress?: { floor: number; roomId: string; score: number },
+): Promise<void> {
+  const score =
+    negotiationScore !== undefined
+      ? negotiationScore
+      : await computeGameNegotiationScore(uid, game);
+  if (score == null) return;
+  const userProfile = profile ?? (await getUserLeaderboardProfile(uid));
+  const computed = computeLeaderboardScore(game);
+  const floor = progress?.floor ?? computed.floor;
+  const roomId = progress?.roomId ?? computed.roomId;
+  const progScore = progress?.score ?? computed.score;
+
+  const existingSnap = await negotiatorRankingRef(uid).get();
+  if (existingSnap.exists) {
+    const existing = existingSnap.data();
+    const existingRaw = Number(existing?.negotiationScore);
+    const existingFloor = Number(existing?.floor) || 0;
+    if (Number.isFinite(existingRaw)) {
+      const existingNeg = clampNegotiationScore(existingRaw);
+      if (
+        score < existingNeg ||
+        (score === existingNeg && floor <= existingFloor)
+      ) {
+        return;
+      }
+    }
+  }
+
+  const payload: Record<string, unknown> = {
+    uid,
+    displayName: userProfile.displayName,
+    gameId: game.id,
+    roomId,
+    floor,
+    score: progScore,
+    negotiationScore: score,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (userProfile.twitterHandle) payload.twitterHandle = userProfile.twitterHandle;
+  if (userProfile.photoURL) payload.photoURL = userProfile.photoURL;
+  if (userProfile.avatarConfig) payload.avatarConfig = userProfile.avatarConfig;
+
+  await negotiatorRankingRef(uid).set(payload, { merge: true });
+}
+
+export async function syncNegotiationScoreForGame(
+  uid: string,
+  gameId: string,
+): Promise<void> {
+  const gameSnap = await getFirebaseAdminDb()
+    .collection("users")
+    .doc(uid)
+    .collection("games")
+    .doc(gameId)
+    .get();
+  if (!gameSnap.exists) return;
+
+  const { normalizeGameSave } = await import("@/types/game");
+  const game = normalizeGameSave(gameSnap.id, gameSnap.data());
+  if (!game) return;
+
+  await syncLeaderboardForGame(uid, game);
+  await syncGlobalNegotiatorRanking(uid, game);
 }
 
 export async function syncLeaderboardForGame(
@@ -301,19 +436,16 @@ export async function getLeaderboard(
     .limit(limit)
     .get();
 
-  return snap.docs.map((d) => {
-    const data = d.data();
-    return {
-      uid: d.id,
-      displayName: String(data.displayName ?? "Player"),
-      twitterHandle: data.twitterHandle
-        ? String(data.twitterHandle)
-        : undefined,
-      gameId: String(data.gameId ?? ""),
-      roomId: String(data.roomId ?? ""),
-      floor: Number(data.floor) || 0,
-      score: Number(data.score) || 0,
-      updatedAt: toIso(data.updatedAt),
-    };
-  });
+  return snap.docs.map((d) => mapRankingDoc(d.id, d.data()));
+}
+
+export async function getTopNegotiators(limit = 50): Promise<LeaderboardEntry[]> {
+  const snap = await getFirebaseAdminDb()
+    .collection("negotiatorRankings")
+    .orderBy("negotiationScore", "desc")
+    .orderBy("floor", "desc")
+    .limit(limit)
+    .get();
+
+  return snap.docs.map((d) => mapRankingDoc(d.id, d.data()));
 }

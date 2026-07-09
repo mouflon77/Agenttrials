@@ -23,5 +23,6 @@ export async function GET(
   }
 
   const entries = await getLeaderboard(leagueId);
-  return NextResponse.json({ league, entries });
+  const { code: _code, ...publicLeague } = league;
+  return NextResponse.json({ league: publicLeague, entries });
 }

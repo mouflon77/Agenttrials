@@ -78,13 +78,11 @@ env:
     availability:
       - RUNTIME
 
-  # Secrets — create in Secret Manager, then uncomment and grant access:
-  #   npx firebase-tools apphosting:secrets:set GEMINI_API_KEY
-  #   npx firebase-tools apphosting:secrets:grantaccess GEMINI_API_KEY --backend trials
-  # - variable: GEMINI_API_KEY
-  #   secret: GEMINI_API_KEY
-  #   availability:
-  #     - RUNTIME
+  # Secrets — GEMINI_API_KEY set in Secret Manager + grantaccess on backend trials
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME
   # - variable: TWITTER_CLIENT_SECRET
   #   secret: TWITTER_CLIENT_SECRET
   #   availability:

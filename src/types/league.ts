@@ -1,5 +1,6 @@
 import type { GameSaveDocument } from "@/types/game";
 import { parseRoomFloor } from "@/types/game";
+import type { AvatarConfig } from "@/types/avatar";
 
 export interface LeagueDocument {
   id: string;
@@ -14,7 +15,8 @@ export interface LeagueDocument {
 export interface LeagueMembership {
   leagueId: string;
   leagueName: string;
-  leagueCode: string;
+  /** Admin / server only — not exposed on player APIs after join. */
+  leagueCode?: string;
   gameId: string;
   joinedAt: string;
 }
@@ -23,10 +25,15 @@ export interface LeaderboardEntry {
   uid: string;
   displayName: string;
   twitterHandle?: string;
+  photoURL?: string;
+  avatarConfig?: AvatarConfig;
   gameId: string;
   roomId: string;
   floor: number;
+  /** Progress score: floor × 1000 + portals unlocked. */
   score: number;
+  /** Negotiation quality 0–100; omitted until first keyword guessed. */
+  negotiationScore?: number;
   updatedAt: string;
 }
 
@@ -57,4 +64,40 @@ export function computeLeaderboardScore(game: Pick<GameSaveDocument, "roomId" | 
 
 export function formatLeaderboardRank(rank: number): string {
   return String(rank).padStart(2, "0");
+}
+
+/** RAG text color: green at 100 → red at 0. */
+export function negotiationScoreTextClass(score: number): string {
+  if (score >= 80) return "text-term-green";
+  if (score >= 60) return "text-lime-400";
+  if (score >= 40) return "text-term-yellow";
+  if (score >= 20) return "text-orange-400";
+  return "text-term-red";
+}
+
+/** RAG background for score pill. */
+export function negotiationScoreBgStyle(score: number): {
+  backgroundColor: string;
+  color: string;
+} {
+  const hue = Math.round((score / 100) * 120);
+  return {
+    backgroundColor: `hsla(${hue}, 72%, 38%, 0.35)`,
+    color: `hsl(${hue}, 85%, 72%)`,
+  };
+}
+
+export function formatNegotiationScore(score: number): string {
+  return String(clampNegotiationScore(score)).padStart(3, "0");
+}
+
+export function clampNegotiationScore(score: number): number {
+  if (!Number.isFinite(score)) return 0;
+  return Math.min(100, Math.max(0, Math.round(score)));
+}
+
+export function hasNegotiationScore(
+  score: number | null | undefined,
+): score is number {
+  return typeof score === "number" && Number.isFinite(score);
 }

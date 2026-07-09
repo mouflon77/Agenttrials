@@ -8,7 +8,8 @@ import { NpcChatBar } from "@/components/play/NpcChatBar";
 import { NpcSpeechBubble } from "@/components/play/NpcSpeechBubble";
 import { NpcScreenProjector } from "@/components/play/NpcScreenProjector";
 import { PlayHud } from "@/components/play/PlayHud";
-import { VirtualJoystick } from "@/components/play/VirtualJoystick";
+import { VirtualDpad } from "@/components/play/VirtualDpad";
+import { useTouchPlayControls } from "@/hooks/useTouchPlayControls";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGameSave } from "@/hooks/useGameSave";
 import { useNpcChat } from "@/hooks/useNpcChat";
@@ -75,18 +76,6 @@ function findNearbyPortal(
   return null;
 }
 
-function useIsMobile(): boolean {
-  const [mobile, setMobile] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 768px)");
-    const update = () => setMobile(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-  return mobile;
-}
-
 export function PlayScene({
   room,
   tilesets,
@@ -97,7 +86,7 @@ export function PlayScene({
 }: PlaySceneProps) {
   const router = useRouter();
   const { user, userProfile } = useAuth();
-  const isMobile = useIsMobile();
+  const touchControls = useTouchPlayControls();
 
   const blockedCells = useMemo(
     () => buildBlockedCells(room, tilesets),
@@ -131,8 +120,9 @@ export function PlayScene({
   const {
     input: chatInput,
     setInput: setChatInput,
+    lines: chatLines,
     npcLines,
-    userLines,
+    keywordProgress,
     sending: chatSending,
     send: sendChat,
     registerBribePayment,
@@ -142,7 +132,7 @@ export function PlayScene({
     gridPosition,
     visualPosition,
     facingRow,
-    applyJoystick,
+    tryStartMove,
   } = usePlayerMovement(initialSpawn, blockedCells, room, inputPaused);
 
   const roomSpawn = useMemo(() => resolvePlayerSpawn(room), [room]);
@@ -268,7 +258,7 @@ export function PlayScene({
           unlockedPortalIds={unlockedPortalIds}
           onPortalEnter={handlePortalEnter}
         />
-        {chatNpc && (
+        {chatNpc && !touchControls && (
           <NpcScreenProjector
             npc={chatNpc}
             tilesets={tilesets}
@@ -277,7 +267,7 @@ export function PlayScene({
         )}
       </RoomCanvas>
 
-      {chatNpc && (
+      {chatNpc && !touchControls && (
         <NpcSpeechBubble
           ref={speechBubbleRef}
           npc={chatNpc}
@@ -285,15 +275,15 @@ export function PlayScene({
         />
       )}
 
-      {isMobile && !inputPaused && (
-        <VirtualJoystick
-          className="absolute bottom-6 left-4 z-20 md:hidden"
-          onMove={applyJoystick}
+      {touchControls && !inputPaused && (
+        <VirtualDpad
+          className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] z-30"
+          onMove={tryStartMove}
         />
       )}
 
       <PlayHud
-        isMobile={isMobile}
+        touchControls={touchControls}
         chatOpen={inputPaused}
         nearbyNpc={nearbyNpc}
         portalLocked={portalLocked}
@@ -306,7 +296,9 @@ export function PlayScene({
         <NpcChatBar
           npc={chatNpc}
           roomId={roomId}
-          userLines={userLines}
+          lines={chatLines}
+          isMobile={touchControls}
+          keywordProgress={keywordProgress}
           input={chatInput}
           sending={chatSending}
           onInputChange={setChatInput}

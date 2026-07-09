@@ -15,5 +15,13 @@ export async function GET(request: Request) {
   }
 
   const memberships = await listUserLeagueMemberships(uid);
-  return NextResponse.json({ memberships });
+  const publicMemberships = memberships.map(
+    ({ leagueId, leagueName, gameId, joinedAt }) => ({
+      leagueId,
+      leagueName,
+      gameId,
+      joinedAt,
+    }),
+  );
+  return NextResponse.json({ memberships: publicMemberships });
 }

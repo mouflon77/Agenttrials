@@ -6,47 +6,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import { GameSavesPanel } from "@/components/dashboard/GameSavesPanel";
 import { TerminalShell } from "@/components/terminal/TerminalShell";
 import { useGames } from "@/hooks/useGames";
+import { leagueMembershipsByGameId, useLeagueMemberships } from "@/hooks/useLeagueMemberships";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useRoomList } from "@/hooks/useRoomList";
 import { formatRoomLabel } from "@/types/room";
-
-function AdminSetupCard() {
-  const { user } = useAuth();
-  if (!user) return null;
-
-  return (
-    <div className="terminal-bezel mt-8 rounded-xl border-amber-900/40 bg-amber-950/30 p-4">
-      <h2 className="text-sm font-black uppercase text-term-yellow">
-        Admin setup required
-      </h2>
-      <p className="mt-2 font-mono text-xs leading-relaxed text-amber-200/80">
-        Add your Firebase UID to{" "}
-        <code className="text-term-green">NEXT_PUBLIC_ADMIN_UID</code> in{" "}
-        <code className="text-term-green">.env.local</code>, then create{" "}
-        <code className="text-term-green">config/app</code> with field{" "}
-        <code className="text-term-green">adminUid</code>, or doc{" "}
-        <code className="text-term-green">admins/{user.uid}</code>.
-      </p>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <code className="max-w-full truncate rounded border border-zinc-700 bg-black/60 px-3 py-2 font-mono text-[10px] text-term-green">
-          {user.uid}
-        </code>
-        <button
-          type="button"
-          onClick={() => void navigator.clipboard.writeText(user.uid)}
-          className="chunky-btn rounded px-3 py-2 text-[10px] text-white"
-        >
-          Copy UID
-        </button>
-      </div>
-    </div>
-  );
-}
 
 export default function DashboardPage() {
   const { user, userProfile } = useAuth();
   const isAdmin = useIsAdmin();
   const { games, loading: gamesLoading } = useGames(user?.uid);
+  const { memberships } = useLeagueMemberships();
+  const leagueByGameId = useMemo(
+    () => leagueMembershipsByGameId(memberships),
+    [memberships],
+  );
   const { rooms, loading: roomsLoading } = useRoomList();
 
   const displayName =
@@ -85,6 +58,7 @@ export default function DashboardPage() {
             loading={gamesLoading}
             roomsById={roomsById}
             defaultStartRoomId={defaultStartRoomId}
+            leagueByGameId={leagueByGameId}
           />
         </section>
 
@@ -208,8 +182,6 @@ export default function DashboardPage() {
           </Link>
         </section>
       )}
-
-      {user && !isAdmin && <AdminSetupCard />}
     </TerminalShell>
   );
 }

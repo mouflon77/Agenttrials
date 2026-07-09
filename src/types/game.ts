@@ -63,12 +63,11 @@ function normalizeNpcPuzzles(
       const p = puzzleRaw as Partial<GeneratedNpcPuzzle>;
       const prompt = String(p.prompt ?? "").trim();
       const passKeywords = String(p.passKeywords ?? "").trim();
-      const passHint = String(p.passHint ?? "").trim();
       if (!prompt || !passKeywords) continue;
       roomPuzzles[npcId] = {
         prompt: prompt.slice(0, 1200),
         passKeywords: passKeywords.slice(0, 200),
-        passHint: passHint.slice(0, 600),
+        passHint: String(p.passHint ?? "").slice(0, 600),
         stats: normalizeGatekeeperStats(p.stats),
       };
     }

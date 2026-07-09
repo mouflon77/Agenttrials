@@ -32,7 +32,14 @@ export async function POST(request: Request) {
 
   try {
     const membership = await joinLeague(uid, code, gameId);
-    return NextResponse.json({ membership });
+    return NextResponse.json({
+      membership: {
+        leagueId: membership.leagueId,
+        leagueName: membership.leagueName,
+        gameId: membership.gameId,
+        joinedAt: membership.joinedAt,
+      },
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Could not join league.";
