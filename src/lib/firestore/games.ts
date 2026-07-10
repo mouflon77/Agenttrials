@@ -2,8 +2,6 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
-  query,
   type Unsubscribe,
 } from "firebase/firestore";
 
@@ -43,21 +41,26 @@ function gamesCollection(uid: string) {
   return collection(getFirebaseDb(), "users", uid, "games");
 }
 
+function mapGames(
+  docs: Array<{ id: string; data: () => Record<string, unknown> }>,
+): GameSaveDocument[] {
+  return docs
+    .map((d) => readGameDoc(d.id, d.data()))
+    .filter((g): g is GameSaveDocument => g != null)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, MAX_SAVED_GAMES);
+}
+
 export function subscribeToGames(
   uid: string,
   onData: (games: GameSaveDocument[]) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
-  const q = query(gamesCollection(uid), orderBy("updatedAt", "desc"));
+  // No orderBy — avoids depending on single-field DESC indexes that
+  // fieldOverrides can accidentally disable. Sort client-side instead.
   return onSnapshot(
-    q,
-    (snap) => {
-      const games = snap.docs
-        .map((d) => readGameDoc(d.id, d.data()))
-        .filter((g): g is GameSaveDocument => g != null)
-        .slice(0, MAX_SAVED_GAMES);
-      onData(games);
-    },
+    gamesCollection(uid),
+    (snap) => onData(mapGames(snap.docs)),
     (err) => onError?.(err),
   );
 }

@@ -13,6 +13,7 @@ import { normalizeRoom, resolvePlaySpawn, resolvePlayerSpawn } from "@/types/roo
 interface GameSavesPanelProps {
   games: GameSaveDocument[];
   loading: boolean;
+  loadError?: string | null;
   roomsById: Map<string, { title?: string; playerSpawnX?: number; playerSpawnZ?: number }>;
   defaultStartRoomId: string;
   leagueByGameId?: Map<string, LeagueMembership>;
@@ -49,6 +50,7 @@ function buildContinueHref(
 export function GameSavesPanel({
   games,
   loading,
+  loadError = null,
   roomsById,
   defaultStartRoomId,
   leagueByGameId,
@@ -289,6 +291,12 @@ export function GameSavesPanel({
         </p>
       )}
 
+      {loadError && (
+        <p className="mb-4 font-mono text-xs text-term-red">
+          Could not load saves: {loadError}
+        </p>
+      )}
+
       {error && (
         <p className="mb-4 font-mono text-xs text-term-red">{error}</p>
       )}
@@ -300,6 +308,11 @@ export function GameSavesPanel({
           <div className="border-4 border-dashed border-zinc-800 rounded-lg p-6 text-center opacity-50">
             <p className="font-mono text-xs uppercase tracking-widest text-zinc-600">
               No saved games. Start + NEW GAME.
+            </p>
+            <p className="mt-3 font-mono text-[9px] normal-case tracking-normal text-zinc-600">
+              Saves live under your account in Firestore
+              (users/&lt;your-uid&gt;/games). If you had saves before, confirm
+              you&apos;re signed into the same account.
             </p>
           </div>
         ) : (

@@ -14,7 +14,7 @@ import { formatRoomLabel } from "@/types/room";
 export default function DashboardPage() {
   const { user, userProfile } = useAuth();
   const isAdmin = useIsAdmin();
-  const { games, loading: gamesLoading } = useGames(user?.uid);
+  const { games, loading: gamesLoading, error: gamesError } = useGames(user?.uid);
   const { memberships } = useLeagueMemberships();
   const leagueByGameId = useMemo(
     () => leagueMembershipsByGameId(memberships),
@@ -56,6 +56,7 @@ export default function DashboardPage() {
           <GameSavesPanel
             games={games}
             loading={gamesLoading}
+            loadError={gamesError?.message ?? null}
             roomsById={roomsById}
             defaultStartRoomId={defaultStartRoomId}
             leagueByGameId={leagueByGameId}
