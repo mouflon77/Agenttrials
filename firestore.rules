@@ -125,6 +125,11 @@ service cloud.firestore {
         allow read: if isAuthenticated();
         allow write: if false;
       }
+
+      match /members/{memberId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
     }
 
     match /leagueCodes/{code} {
@@ -133,6 +138,11 @@ service cloud.firestore {
     }
 
     match /negotiatorRankings/{uid} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /playerRankings/{uid} {
       allow read: if isAuthenticated();
       allow write: if false;
     }

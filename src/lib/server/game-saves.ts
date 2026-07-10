@@ -148,7 +148,7 @@ export async function createGame(
 
   await gameRef(uid, gameId).set(payload);
 
-  return {
+  const game: GameSaveDocument = {
     id: gameId,
     label,
     roomId: startRoomId,
@@ -160,6 +160,19 @@ export async function createGame(
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+
+  try {
+    const { syncPlayerRanking, syncLeaderboardForGame } =
+      await import("@/lib/server/leagues");
+    await syncPlayerRanking(uid, game);
+    await syncLeaderboardForGame(uid, game);
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[game-saves] Leaderboard sync on create failed:", error);
+    }
+  }
+
+  return game;
 }
 
 export async function updateGame(
@@ -192,9 +205,10 @@ export async function updateGame(
   if (!game) throw new Error("Could not read saved game.");
 
   try {
-    const { syncLeaderboardForGame, syncGlobalNegotiatorRanking } =
+    const { syncLeaderboardForGame, syncGlobalNegotiatorRanking, syncPlayerRanking } =
       await import("@/lib/server/leagues");
     await syncLeaderboardForGame(uid, game);
+    await syncPlayerRanking(uid, game);
     await syncGlobalNegotiatorRanking(uid, game);
   } catch (error) {
     if (process.env.NODE_ENV === "development") {

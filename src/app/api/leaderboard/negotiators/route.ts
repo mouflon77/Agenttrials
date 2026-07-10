@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AdminAuthError, requireUserRequest } from "@/lib/server/admin-auth";
-import { getTopNegotiators } from "@/lib/server/leagues";
+import { getTopPlayers } from "@/lib/server/leagues";
 
 export async function GET(request: Request) {
   try {
@@ -13,6 +13,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const entries = await getTopNegotiators();
-  return NextResponse.json({ entries });
+  try {
+    const entries = await getTopPlayers();
+    return NextResponse.json({ entries });
+  } catch (error) {
+    console.error("[api/leaderboard/negotiators] GET failed:", error);
+    return NextResponse.json(
+      { error: "Could not load rankings." },
+      { status: 500 },
+    );
+  }
 }

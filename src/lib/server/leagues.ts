@@ -39,8 +39,16 @@ function entryRef(leagueId: string, uid: string) {
   return leagueRef(leagueId).collection("entries").doc(uid);
 }
 
+function leagueMemberRef(leagueId: string, uid: string) {
+  return leagueRef(leagueId).collection("members").doc(uid);
+}
+
 function negotiatorRankingRef(uid: string) {
   return getFirebaseAdminDb().collection("negotiatorRankings").doc(uid);
+}
+
+function playerRankingRef(uid: string) {
+  return getFirebaseAdminDb().collection("playerRankings").doc(uid);
 }
 
 function toIso(value: unknown): string {
@@ -254,6 +262,10 @@ export async function joinLeague(
   };
 
   await membershipRef(uid, league.id).set(membership, { merge: true });
+  await leagueMemberRef(league.id, uid).set(
+    { gameId, joinedAt: now },
+    { merge: true },
+  );
 
   const gameData = gameSnap.data();
   if (gameData) {
@@ -306,11 +318,148 @@ export async function syncLeaderboardEntry(
   if (profile.avatarConfig) payload.avatarConfig = profile.avatarConfig;
 
   await entryRef(leagueId, uid).set(payload, { merge: true });
+  await syncPlayerRanking(uid, game, profile, negotiationScore);
   await syncGlobalNegotiatorRanking(uid, game, negotiationScore, profile, {
     floor,
     roomId,
     score,
   });
+}
+
+/** Floor/score ranking for any player with saved game progress (no keyword required). */
+export async function syncPlayerRanking(
+  uid: string,
+  game: GameSaveDocument,
+  profile?: Awaited<ReturnType<typeof getUserLeaderboardProfile>>,
+  negotiationScore?: number | null,
+): Promise<void> {
+  const userProfile = profile ?? (await getUserLeaderboardProfile(uid));
+  const { floor, score, roomId } = computeLeaderboardScore(game);
+  const negScore =
+    negotiationScore !== undefined
+      ? negotiationScore
+      : await computeGameNegotiationScore(uid, game);
+
+  const payload: Record<string, unknown> = {
+    uid,
+    displayName: userProfile.displayName,
+    gameId: game.id,
+    roomId,
+    floor,
+    score,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (negScore != null) {
+    payload.negotiationScore = negScore;
+  } else {
+    payload.negotiationScore = FieldValue.delete();
+  }
+  if (userProfile.twitterHandle) payload.twitterHandle = userProfile.twitterHandle;
+  if (userProfile.photoURL) payload.photoURL = userProfile.photoURL;
+  if (userProfile.avatarConfig) payload.avatarConfig = userProfile.avatarConfig;
+
+  await playerRankingRef(uid).set(payload, { merge: true });
+}
+
+async function reconcilePlayerRankings(scanLimit = 300): Promise<void> {
+  try {
+    const { normalizeGameSave } = await import("@/types/game");
+    const snap = await getFirebaseAdminDb()
+      .collectionGroup("games")
+      .orderBy("updatedAt", "desc")
+      .limit(scanLimit)
+      .get();
+
+    const seen = new Set<string>();
+    for (const doc of snap.docs) {
+      const uid = doc.ref.parent.parent?.id;
+      if (!uid || seen.has(uid)) continue;
+      seen.add(uid);
+
+      const rankingSnap = await playerRankingRef(uid).get();
+      if (rankingSnap.exists) continue;
+
+      const game = normalizeGameSave(doc.id, doc.data());
+      if (game) {
+        await syncPlayerRanking(uid, game);
+      }
+    }
+  } catch (error) {
+    console.error("[leagues] reconcilePlayerRankings failed:", error);
+  }
+}
+
+async function seedLeagueMembersFromMemberships(leagueId: string): Promise<void> {
+  const cgSnap = await getFirebaseAdminDb()
+    .collectionGroup("leagueMemberships")
+    .where("leagueId", "==", leagueId)
+    .get();
+
+  let batch = getFirebaseAdminDb().batch();
+  let pending = 0;
+  for (const doc of cgSnap.docs) {
+    const uid = doc.ref.parent.parent?.id;
+    if (!uid) continue;
+
+    const existing = await leagueMemberRef(leagueId, uid).get();
+    if (existing.exists) continue;
+
+    const data = doc.data();
+    batch.set(
+      leagueMemberRef(leagueId, uid),
+      {
+        gameId: String(data.gameId ?? ""),
+        joinedAt: data.joinedAt ?? FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    pending += 1;
+    if (pending >= 400) {
+      await batch.commit();
+      batch = getFirebaseAdminDb().batch();
+      pending = 0;
+    }
+  }
+  if (pending > 0) {
+    await batch.commit();
+  }
+}
+
+async function reconcileLeagueEntries(leagueId: string): Promise<void> {
+  try {
+    try {
+      await seedLeagueMembersFromMemberships(leagueId);
+    } catch (error) {
+      console.error("[leagues] seedLeagueMembersFromMemberships failed:", error);
+    }
+
+    const { normalizeGameSave } = await import("@/types/game");
+    const memberSnap = await leagueRef(leagueId).collection("members").get();
+
+    for (const memberDoc of memberSnap.docs) {
+      const uid = memberDoc.id;
+      const gameId = String(memberDoc.data().gameId ?? "");
+      if (!gameId) continue;
+
+      const entrySnap = await entryRef(leagueId, uid).get();
+      if (entrySnap.exists) continue;
+
+      const gameSnap = await getFirebaseAdminDb()
+        .collection("users")
+        .doc(uid)
+        .collection("games")
+        .doc(gameId)
+        .get();
+      if (!gameSnap.exists) continue;
+
+      const game = normalizeGameSave(gameId, gameSnap.data());
+      if (game) {
+        await syncLeaderboardEntry(uid, leagueId, game);
+      }
+    }
+  } catch (error) {
+    console.error("[leagues] reconcileLeagueEntries failed:", error);
+  }
 }
 
 function mapRankingDoc(
@@ -411,6 +560,7 @@ export async function syncNegotiationScoreForGame(
   if (!game) return;
 
   await syncLeaderboardForGame(uid, game);
+  await syncPlayerRanking(uid, game);
   await syncGlobalNegotiatorRanking(uid, game);
 }
 
@@ -429,10 +579,25 @@ export async function getLeaderboard(
   leagueId: string,
   limit = 50,
 ): Promise<LeaderboardEntry[]> {
+  await reconcileLeagueEntries(leagueId);
+
   const snap = await leagueRef(leagueId)
     .collection("entries")
     .orderBy("score", "desc")
     .orderBy("updatedAt", "asc")
+    .limit(limit)
+    .get();
+
+  return snap.docs.map((d) => mapRankingDoc(d.id, d.data()));
+}
+
+export async function getTopPlayers(limit = 50): Promise<LeaderboardEntry[]> {
+  await reconcilePlayerRankings();
+
+  const snap = await getFirebaseAdminDb()
+    .collection("playerRankings")
+    .orderBy("score", "desc")
+    .orderBy("floor", "desc")
     .limit(limit)
     .get();
 

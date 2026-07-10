@@ -16,13 +16,21 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const { leagueId } = await params;
-  const league = await getLeagueById(leagueId);
-  if (!league) {
-    return NextResponse.json({ error: "League not found." }, { status: 404 });
-  }
+  try {
+    const { leagueId } = await params;
+    const league = await getLeagueById(leagueId);
+    if (!league) {
+      return NextResponse.json({ error: "League not found." }, { status: 404 });
+    }
 
-  const entries = await getLeaderboard(leagueId);
-  const { code: _code, ...publicLeague } = league;
-  return NextResponse.json({ league: publicLeague, entries });
+    const entries = await getLeaderboard(leagueId);
+    const { code: _code, ...publicLeague } = league;
+    return NextResponse.json({ league: publicLeague, entries });
+  } catch (error) {
+    console.error("[api/leagues/leaderboard] GET failed:", error);
+    return NextResponse.json(
+      { error: "Could not load leaderboard." },
+      { status: 500 },
+    );
+  }
 }

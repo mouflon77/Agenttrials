@@ -32,7 +32,8 @@ export default function LeagueLeaderboardPage({
         `/api/leagues/${encodeURIComponent(leagueId)}/leaderboard`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      const data = (await res.json()) as {
+      const raw = await res.text();
+      const data = (raw ? JSON.parse(raw) : {}) as {
         league?: LeagueDocument;
         entries?: LeaderboardEntry[];
         error?: string;

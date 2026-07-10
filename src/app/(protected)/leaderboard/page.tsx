@@ -34,11 +34,12 @@ export default function LeaderboardHubPage() {
       const res = await fetch("/api/leaderboard/negotiators", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = (await res.json()) as {
+      const raw = await res.text();
+      const data = (raw ? JSON.parse(raw) : {}) as {
         entries?: LeaderboardEntry[];
         error?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? "Could not load negotiators.");
+      if (!res.ok) throw new Error(data.error ?? "Could not load rankings.");
       setTopNegotiators(data.entries ?? []);
     } catch {
       setTopNegotiators([]);
@@ -114,7 +115,7 @@ export default function LeaderboardHubPage() {
           <p className="font-mono text-sm text-zinc-400">
             &gt; LEADERBOARD_NET: <span className="text-white">ONLINE</span>
             <br />
-            &gt; TOP_NEGOTIATORS // LEAGUES
+            &gt; GLOBAL_RANKINGS // LEAGUES
           </p>
         </div>
         <Link
@@ -128,18 +129,18 @@ export default function LeaderboardHubPage() {
       <section className="terminal-bezel mb-8 overflow-hidden rounded-xl">
         <div className="border-b border-zinc-800 bg-black/40 px-4 py-3">
           <h2 className="font-mono text-xs font-black uppercase tracking-[0.2em] text-term-pink">
-            Top Negotiators // Global
+            Global Rankings
           </h2>
           <p className="mt-1 font-mono text-[9px] text-zinc-600">
-            Best negotiation scores across all players. Ranked by neg. score,
-            then floor reached.
+            All players with saved game progress. Ranked by floor progress, then
+            negotiation score once you have talked to a gatekeeper.
           </p>
         </div>
         {negotiatorsLoading ? (
           <p className="p-6 font-mono text-xs text-zinc-500">LOADING...</p>
         ) : topNegotiators.length === 0 ? (
           <p className="p-6 text-center font-mono text-xs text-zinc-600">
-            No rankings yet. Talk to gatekeepers in-game to appear here.
+            No rankings yet. Start a game from the dashboard to appear here.
           </p>
         ) : (
           <div className="divide-y divide-zinc-800">
@@ -149,7 +150,7 @@ export default function LeaderboardHubPage() {
                 entry={entry}
                 rank={index + 1}
                 isYou={entry.uid === user?.uid}
-                emphasis="negotiation"
+                emphasis="league"
               />
             ))}
           </div>

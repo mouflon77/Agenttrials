@@ -15,7 +15,30 @@
         { "fieldPath": "negotiationScore", "order": "DESCENDING" },
         { "fieldPath": "floor", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "playerRankings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "score", "order": "DESCENDING" },
+        { "fieldPath": "floor", "order": "DESCENDING" }
+      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "leagueMemberships",
+      "fieldPath": "leagueId",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "games",
+      "fieldPath": "updatedAt",
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
 }
