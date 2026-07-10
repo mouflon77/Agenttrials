@@ -1,0 +1,20 @@
+[debug] [2026-07-10T09:01:35.909Z] ----------------------------------------------------------------------
+[debug] [2026-07-10T09:01:35.916Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\mphys\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy
+[debug] [2026-07-10T09:01:35.916Z] CLI Version:   15.22.3
+[debug] [2026-07-10T09:01:35.916Z] Platform:      win32
+[debug] [2026-07-10T09:01:35.916Z] Node Version:  v25.2.1
+[debug] [2026-07-10T09:01:35.917Z] Detected Agent: unknown
+[debug] [2026-07-10T09:01:35.917Z] Time:          Fri Jul 10 2026 10:01:35 GMT+0100 (British Summer Time)
+[debug] [2026-07-10T09:01:35.917Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-10T09:01:50.842Z] Object "/storage" in "firebase.json" has unknown property: {"additionalProperty":"bucket"}
+[debug] [2026-07-10T09:01:50.842Z] Field "/storage" in "firebase.json" is possibly invalid: must be array
+[debug] [2026-07-10T09:01:50.842Z] Field "/storage" in "firebase.json" is possibly invalid: must match a schema in anyOf
+[debug] [2026-07-10T09:01:50.852Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-10T09:01:50.852Z] > authorizing via signed-in user (chewie@chewie.io)
+[debug] [2026-07-10T09:01:50.852Z] [iam] checking project agenttrials-xo for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebase.projects.update","firebaseauth.configs.update","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]
+[debug] [2026-07-10T09:01:50.854Z] Checked if tokens are valid: true, expires at: 1783676426959
+[debug] [2026-07-10T09:01:50.855Z] Checked if tokens are valid: true, expires at: 1783676426959
+[debug] [2026-07-10T09:01:50.856Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenttrials-xo:testIamPermissions [none]
+[debug] [2026-07-10T09:01:50.856Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenttrials-xo:testIamPermissions  x-goog-user-project=agenttrials-xo
+[debug] [2026-07-10T09:01:50.856Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/agenttrials-xo:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebase.projects.update","firebaseauth.configs.update","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]}

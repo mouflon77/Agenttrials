@@ -293,19 +293,29 @@ export function PlayScene({
       />
 
       {chatNpc && (
-        <NpcChatBar
-          npc={chatNpc}
-          roomId={roomId}
-          lines={chatLines}
-          isMobile={touchControls}
-          keywordProgress={keywordProgress}
-          input={chatInput}
-          sending={chatSending}
-          onInputChange={setChatInput}
-          onSend={() => void sendChat()}
-          onClose={() => setChatNpc(null)}
-          onBribeVerified={registerBribePayment}
-        />
+        <>
+          {touchControls && (
+            <button
+              type="button"
+              aria-label="Close conversation"
+              className="absolute inset-0 z-20 bg-black/40"
+              onClick={() => setChatNpc(null)}
+            />
+          )}
+          <NpcChatBar
+            npc={chatNpc}
+            roomId={roomId}
+            lines={chatLines}
+            isMobile={touchControls}
+            keywordProgress={keywordProgress}
+            input={chatInput}
+            sending={chatSending}
+            onInputChange={setChatInput}
+            onSend={() => void sendChat()}
+            onClose={() => setChatNpc(null)}
+            onBribeVerified={registerBribePayment}
+          />
+        </>
       )}
     </div>
   );

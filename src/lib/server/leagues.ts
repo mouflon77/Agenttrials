@@ -425,41 +425,80 @@ async function seedLeagueMembersFromMemberships(leagueId: string): Promise<void>
   }
 }
 
+export type LeagueReconcileResult = {
+  membersSeeded: number;
+  entriesSynced: number;
+  memberCount: number;
+  entryCount: number;
+  warnings: string[];
+};
+
 async function reconcileLeagueEntries(leagueId: string): Promise<void> {
   try {
-    try {
-      await seedLeagueMembersFromMemberships(leagueId);
-    } catch (error) {
-      console.error("[leagues] seedLeagueMembersFromMemberships failed:", error);
-    }
-
-    const { normalizeGameSave } = await import("@/types/game");
-    const memberSnap = await leagueRef(leagueId).collection("members").get();
-
-    for (const memberDoc of memberSnap.docs) {
-      const uid = memberDoc.id;
-      const gameId = String(memberDoc.data().gameId ?? "");
-      if (!gameId) continue;
-
-      const entrySnap = await entryRef(leagueId, uid).get();
-      if (entrySnap.exists) continue;
-
-      const gameSnap = await getFirebaseAdminDb()
-        .collection("users")
-        .doc(uid)
-        .collection("games")
-        .doc(gameId)
-        .get();
-      if (!gameSnap.exists) continue;
-
-      const game = normalizeGameSave(gameId, gameSnap.data());
-      if (game) {
-        await syncLeaderboardEntry(uid, leagueId, game);
-      }
-    }
+    await reconcileLeague(leagueId);
   } catch (error) {
     console.error("[leagues] reconcileLeagueEntries failed:", error);
   }
+}
+
+/** Admin/manual backfill: seed members from old memberships and sync missing entries. */
+export async function reconcileLeague(
+  leagueId: string,
+): Promise<LeagueReconcileResult> {
+  const warnings: string[] = [];
+  let membersSeeded = 0;
+
+  try {
+    const before = await leagueRef(leagueId).collection("members").get();
+    const beforeIds = new Set(before.docs.map((d) => d.id));
+    await seedLeagueMembersFromMemberships(leagueId);
+    const after = await leagueRef(leagueId).collection("members").get();
+    membersSeeded = after.docs.filter((d) => !beforeIds.has(d.id)).length;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not seed league members.";
+    warnings.push(message);
+    console.error("[leagues] seedLeagueMembersFromMemberships failed:", error);
+  }
+
+  const { normalizeGameSave } = await import("@/types/game");
+  const memberSnap = await leagueRef(leagueId).collection("members").get();
+  let entriesSynced = 0;
+
+  for (const memberDoc of memberSnap.docs) {
+    const uid = memberDoc.id;
+    const gameId = String(memberDoc.data().gameId ?? "");
+    if (!gameId) continue;
+
+    const entrySnap = await entryRef(leagueId, uid).get();
+    if (entrySnap.exists) continue;
+
+    const gameSnap = await getFirebaseAdminDb()
+      .collection("users")
+      .doc(uid)
+      .collection("games")
+      .doc(gameId)
+      .get();
+    if (!gameSnap.exists) continue;
+
+    const game = normalizeGameSave(gameId, gameSnap.data());
+    if (game) {
+      await syncLeaderboardEntry(uid, leagueId, game);
+      entriesSynced += 1;
+    }
+  }
+
+  const entryCount = (
+    await leagueRef(leagueId).collection("entries").count().get()
+  ).data().count;
+
+  return {
+    membersSeeded,
+    entriesSynced,
+    memberCount: memberSnap.size,
+    entryCount,
+    warnings,
+  };
 }
 
 function mapRankingDoc(
@@ -575,33 +614,70 @@ export async function syncLeaderboardForGame(
   );
 }
 
+export type RankingsPage = {
+  entries: LeaderboardEntry[];
+  hasMore: boolean;
+};
+
+function clampPageLimit(limit: number, fallback = 50, max = 100): number {
+  if (!Number.isFinite(limit) || limit <= 0) return fallback;
+  return Math.min(Math.floor(limit), max);
+}
+
+function clampPageOffset(offset: number): number {
+  if (!Number.isFinite(offset) || offset < 0) return 0;
+  return Math.floor(offset);
+}
+
 export async function getLeaderboard(
   leagueId: string,
   limit = 50,
-): Promise<LeaderboardEntry[]> {
+  offset = 0,
+): Promise<RankingsPage> {
   await reconcileLeagueEntries(leagueId);
+
+  const pageLimit = clampPageLimit(limit);
+  const pageOffset = clampPageOffset(offset);
 
   const snap = await leagueRef(leagueId)
     .collection("entries")
     .orderBy("score", "desc")
     .orderBy("updatedAt", "asc")
-    .limit(limit)
+    .offset(pageOffset)
+    .limit(pageLimit + 1)
     .get();
 
-  return snap.docs.map((d) => mapRankingDoc(d.id, d.data()));
+  const hasMore = snap.docs.length > pageLimit;
+  const docs = hasMore ? snap.docs.slice(0, pageLimit) : snap.docs;
+  return {
+    entries: docs.map((d) => mapRankingDoc(d.id, d.data())),
+    hasMore,
+  };
 }
 
-export async function getTopPlayers(limit = 50): Promise<LeaderboardEntry[]> {
+export async function getTopPlayers(
+  limit = 50,
+  offset = 0,
+): Promise<RankingsPage> {
   await reconcilePlayerRankings();
+
+  const pageLimit = clampPageLimit(limit);
+  const pageOffset = clampPageOffset(offset);
 
   const snap = await getFirebaseAdminDb()
     .collection("playerRankings")
     .orderBy("score", "desc")
     .orderBy("floor", "desc")
-    .limit(limit)
+    .offset(pageOffset)
+    .limit(pageLimit + 1)
     .get();
 
-  return snap.docs.map((d) => mapRankingDoc(d.id, d.data()));
+  const hasMore = snap.docs.length > pageLimit;
+  const docs = hasMore ? snap.docs.slice(0, pageLimit) : snap.docs;
+  return {
+    entries: docs.map((d) => mapRankingDoc(d.id, d.data())),
+    hasMore,
+  };
 }
 
 export async function getTopNegotiators(limit = 50): Promise<LeaderboardEntry[]> {

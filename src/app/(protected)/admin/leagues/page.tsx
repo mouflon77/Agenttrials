@@ -13,6 +13,8 @@ export default function AdminLeaguesPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [reconcilingId, setReconcilingId] = useState<string | null>(null);
+  const [reconcileNote, setReconcileNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -105,6 +107,47 @@ export default function AdminLeaguesPage() {
       setError(err instanceof Error ? err.message : "Could not delete league.");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const reconcileLeagueBoard = async (leagueId: string, leagueName: string) => {
+    if (!user) return;
+    setReconcilingId(leagueId);
+    setError(null);
+    setReconcileNote(null);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(
+        `/api/admin/leagues/${encodeURIComponent(leagueId)}/reconcile`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        membersSeeded?: number;
+        entriesSynced?: number;
+        memberCount?: number;
+        entryCount?: number;
+        warnings?: string[];
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Could not reconcile league.");
+      }
+      const warningText =
+        data.warnings && data.warnings.length > 0
+          ? ` Warnings: ${data.warnings.join("; ")}`
+          : "";
+      setReconcileNote(
+        `${leagueName}: seeded ${data.membersSeeded ?? 0} members, synced ${data.entriesSynced ?? 0} entries (${data.entryCount ?? 0} on board / ${data.memberCount ?? 0} members).${warningText}`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not reconcile league.",
+      );
+    } finally {
+      setReconcilingId(null);
     }
   };
 
@@ -206,6 +249,11 @@ export default function AdminLeaguesPage() {
               {error}
             </p>
           )}
+          {reconcileNote && (
+            <p className="relative z-10 mb-4 font-mono text-xs text-term-green">
+              {reconcileNote}
+            </p>
+          )}
 
           <div className="relative z-10 space-y-3">
             {loading ? (
@@ -240,6 +288,17 @@ export default function AdminLeaguesPage() {
                       >
                         View Board
                       </Link>
+                      <button
+                        type="button"
+                        disabled={reconcilingId === league.id}
+                        onClick={() =>
+                          void reconcileLeagueBoard(league.id, league.name)
+                        }
+                        className="chunky-btn rounded px-4 py-2 text-[10px] font-black text-term-yellow"
+                        title="Backfill missing members/entries from older joins"
+                      >
+                        {reconcilingId === league.id ? "..." : "Reconcile"}
+                      </button>
                       <button
                         type="button"
                         disabled={deletingId === league.id}

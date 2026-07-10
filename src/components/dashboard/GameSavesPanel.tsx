@@ -55,6 +55,9 @@ export function GameSavesPanel({
 }: GameSavesPanelProps) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
+  const [creatingLeague, setCreatingLeague] = useState(false);
+  const [showLeagueJoin, setShowLeagueJoin] = useState(false);
+  const [leagueCode, setLeagueCode] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,6 +116,66 @@ export function GameSavesPanel({
     }
   };
 
+  const startNewLeagueGame = async () => {
+    const code = leagueCode.trim().toUpperCase();
+    if (!code) return;
+    setCreatingLeague(true);
+    setError(null);
+    try {
+      const user = getFirebaseAuth().currentUser;
+      if (!user) throw new Error("Sign in to start a league game.");
+
+      const token = await user.getIdToken();
+      const createRes = await fetch("/api/games", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ startRoomId: defaultStartRoomId }),
+      });
+      const createData = (await createRes.json()) as {
+        game?: GameSaveDocument;
+        error?: string;
+      };
+      if (!createRes.ok || !createData.game) {
+        throw new Error(createData.error ?? "Could not start a new game.");
+      }
+
+      const game = createData.game;
+      const joinRes = await fetch("/api/leagues/join", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code, gameId: game.id }),
+      });
+      const joinData = (await joinRes.json()) as {
+        membership?: { leagueId: string; leagueName: string };
+        error?: string;
+      };
+      if (!joinRes.ok || !joinData.membership) {
+        throw new Error(joinData.error ?? "Could not join league.");
+      }
+
+      const params = new URLSearchParams({
+        gameId: game.id,
+        spawnX: String(game.playerX),
+        spawnZ: String(game.playerZ),
+      });
+      router.push(
+        `/play/${encodeURIComponent(game.roomId)}?${params.toString()}`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not start league game.",
+      );
+    } finally {
+      setCreatingLeague(false);
+    }
+  };
+
   const deleteGame = async (gameId: string) => {
     const confirmed = window.confirm("Delete this saved game? This cannot be undone.");
     if (!confirmed) return;
@@ -150,15 +213,75 @@ export function GameSavesPanel({
             SLOTS: {games.length}/{MAX_SAVED_GAMES}
           </p>
         </div>
-        <button
-          type="button"
-          disabled={creating || atLimit}
-          onClick={() => void startNewGame()}
-          className="chunky-btn rounded-md border-zinc-900 bg-zinc-700 px-6 py-3 text-sm text-white"
-        >
-          {creating ? "GENERATING..." : "+ NEW GAME"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={creating || creatingLeague || atLimit}
+            onClick={() => {
+              setShowLeagueJoin((open) => !open);
+              setError(null);
+            }}
+            className="chunky-btn rounded-md border-term-blue/50 bg-zinc-800 px-4 py-3 text-sm text-term-blue"
+          >
+            + NEW LEAGUE GAME
+          </button>
+          <button
+            type="button"
+            disabled={creating || creatingLeague || atLimit}
+            onClick={() => void startNewGame()}
+            className="chunky-btn rounded-md border-zinc-900 bg-zinc-700 px-6 py-3 text-sm text-white"
+          >
+            {creating ? "GENERATING..." : "+ NEW GAME"}
+          </button>
+        </div>
       </div>
+
+      {showLeagueJoin && (
+        <div className="mb-6 rounded-lg border-2 border-term-blue/40 bg-black/40 p-4">
+          <p className="mb-3 font-mono text-[10px] uppercase tracking-widest text-term-blue">
+            Enter league invite code — creates a new save linked to that league
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[10rem] flex-1">
+              <label className="mb-1 block font-mono text-[10px] uppercase text-zinc-500">
+                Invite code
+              </label>
+              <input
+                type="text"
+                value={leagueCode}
+                onChange={(e) => setLeagueCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && leagueCode.trim() && !atLimit) {
+                    void startNewLeagueGame();
+                  }
+                }}
+                placeholder="ABC123"
+                disabled={creatingLeague || atLimit}
+                className="term-input w-full rounded px-3 py-2 font-mono text-lg uppercase tracking-[0.35em]"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={creatingLeague || atLimit || !leagueCode.trim()}
+              onClick={() => void startNewLeagueGame()}
+              className="chunky-btn btn-glow-green rounded px-5 py-3 text-xs font-black uppercase"
+            >
+              {creatingLeague ? "STARTING..." : "Start league game"}
+            </button>
+            <button
+              type="button"
+              disabled={creatingLeague}
+              onClick={() => {
+                setShowLeagueJoin(false);
+                setLeagueCode("");
+              }}
+              className="chunky-btn rounded px-4 py-3 text-xs text-zinc-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {atLimit && (
         <p className="mb-4 font-mono text-[10px] text-term-yellow">

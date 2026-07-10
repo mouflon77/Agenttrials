@@ -16,6 +16,7 @@ export default function LeaderboardHubPage() {
   const { user } = useAuth();
   const { memberships, loading } = useLeagueMemberships();
   const [topNegotiators, setTopNegotiators] = useState<LeaderboardEntry[]>([]);
+  const [hasMoreRankings, setHasMoreRankings] = useState(false);
   const [negotiatorsLoading, setNegotiatorsLoading] = useState(true);
   const [creatingRun, setCreatingRun] = useState(false);
   const [code, setCode] = useState("");
@@ -31,18 +32,21 @@ export default function LeaderboardHubPage() {
     setNegotiatorsLoading(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch("/api/leaderboard/negotiators", {
+      const res = await fetch("/api/leaderboard/negotiators?limit=10&offset=0", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const raw = await res.text();
       const data = (raw ? JSON.parse(raw) : {}) as {
         entries?: LeaderboardEntry[];
+        hasMore?: boolean;
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "Could not load rankings.");
       setTopNegotiators(data.entries ?? []);
+      setHasMoreRankings(Boolean(data.hasMore));
     } catch {
       setTopNegotiators([]);
+      setHasMoreRankings(false);
     } finally {
       setNegotiatorsLoading(false);
     }
@@ -143,17 +147,29 @@ export default function LeaderboardHubPage() {
             No rankings yet. Start a game from the dashboard to appear here.
           </p>
         ) : (
-          <div className="divide-y divide-zinc-800">
-            {topNegotiators.map((entry, index) => (
-              <LeaguePlayerRow
-                key={entry.uid}
-                entry={entry}
-                rank={index + 1}
-                isYou={entry.uid === user?.uid}
-                emphasis="league"
-              />
-            ))}
-          </div>
+          <>
+            <div className="divide-y divide-zinc-800">
+              {topNegotiators.map((entry, index) => (
+                <LeaguePlayerRow
+                  key={entry.uid}
+                  entry={entry}
+                  rank={index + 1}
+                  isYou={entry.uid === user?.uid}
+                  emphasis="league"
+                />
+              ))}
+            </div>
+            {(hasMoreRankings || topNegotiators.length >= 10) && (
+              <div className="border-t border-zinc-800 p-4 text-center">
+                <Link
+                  href="/leaderboard/global"
+                  className="chunky-btn inline-block rounded px-6 py-3 text-[10px] font-black uppercase text-white"
+                >
+                  Show more →
+                </Link>
+              </div>
+            )}
+          </>
         )}
       </section>
 

@@ -47,7 +47,11 @@ export function NpcChatBar({
   const latestNpc = useMemo(() => latestNpcReply(lines), [lines]);
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 border-t-4 border-black bg-zinc-950/98 backdrop-blur-md">
+    <div
+      className="absolute inset-x-0 bottom-0 z-30 border-t-4 border-black bg-zinc-950/98 backdrop-blur-md"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <BribePanel
         npc={npc}
         roomId={roomId}
@@ -113,7 +117,7 @@ export function NpcChatBar({
         <div className="min-w-0 flex-1">
           <p className="mb-1 truncate font-mono text-[10px] text-zinc-500">
             Reply to {npc.name}
-            {!isMobile ? " · Escape to close" : ""}
+            {isMobile ? " · Tap outside to close" : " · Escape to close"}
           </p>
           <input
             type="text"
